@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.project_treasurewalk"
+    namespace = "com.example.treasurewalk"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.project_treasurewalk"
+        applicationId = "com.example.treasurewalk"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

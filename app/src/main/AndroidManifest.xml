@@ -10,12 +10,12 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Project_TreasureWalk">
+        android:theme="@style/Theme.TreasureWalk">
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Project_TreasureWalk">
+            android:theme="@style/Theme.TreasureWalk">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

@@ -1,4 +1,4 @@
-package com.example.project_treasurewalk.ui.theme
+package com.example.treasurewalk.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

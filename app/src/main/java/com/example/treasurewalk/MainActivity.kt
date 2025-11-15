@@ -1,4 +1,4 @@
-package com.example.project_treasurewalk
+package com.example.treasurewalk
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,14 +11,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.example.project_treasurewalk.ui.theme.Project_TreasureWalkTheme
+import com.example.treasurewalk.ui.theme.TreasureWalkTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            Project_TreasureWalkTheme {
+            TreasureWalkTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Greeting(
                         name = "Android",
@@ -41,7 +41,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
-    Project_TreasureWalkTheme {
+    TreasureWalkTheme {
         Greeting("Android")
     }
 }

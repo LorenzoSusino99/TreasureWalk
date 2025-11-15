@@ -1,4 +1,4 @@
-package com.example.project_treasurewalk
+package com.example.treasurewalk
 
 import org.junit.Test
 
