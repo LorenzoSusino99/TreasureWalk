@@ -23,7 +23,7 @@ fun AppNavigation() {
         composable(Routes.LANDING) {
             LandingScreen(onTimeout = {
                 navController.navigate(Routes.HOME) {
-                    popUpTo(Routes.LANDING) {
+                    popUpTo(Routes.HOME) {
                         inclusive = true
                     }
                 }
