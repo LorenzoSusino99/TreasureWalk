@@ -31,7 +31,11 @@ fun AppNavigation() {
         }
 
         composable(Routes.HOME) {
-            HomeScreen()
+            HomeScreen(
+                onPlayClick = {},
+                onInventoryClick = { },
+                onProfileClick = { }
+            )
         }
     }
 }
