@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontWeight
 import com.example.treasurewalk.data.manager.TreasureType
+import com.example.treasurewalk.ui.features.summary.SummaryScreen
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.Dash
 import com.google.android.gms.maps.model.Gap
@@ -67,75 +68,103 @@ fun PlayScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // 1. LA MAPPA
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = true),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
-        ) {
-            // Disegna il percorso fatto finora
-            if (plannedRoute.isNotEmpty()) {
-                Polyline(
-                    points = plannedRoute,
-                    color = Color.Gray.copy(alpha = 0.5f),
-                    width = 12f,
-                    pattern = listOf(Dash(20f), Gap(10f)),
-                    jointType = JointType.ROUND
-                )
-            }
+    var showSummary by remember { mutableStateOf(false) }
 
-            // 2. DISEGNA IL PERCORSO EFFETTIVO (VERDE PIENO)
-            if (pathPoints.isNotEmpty()) {
-                Polyline(
-                    points = pathPoints,
-                    color = Color(0xFF45D084),
-                    width = 18f,
-                    jointType = JointType.ROUND
-                )
+    // Se showSummary è vero, mostriamo la tua nuova schermata
+    if (showSummary) {
+        // Calcoliamo i dati "al volo" dalla sessione corrente
+        val sessionTreasures = treasures.filter { it.isCollected }
+        val xpGained = sessionTreasures.sumOf { it.type.xp }
+
+        SummaryScreen(
+            distance = totalDistance,
+            xpGained = xpGained,
+            treasuresCount = sessionTreasures.size,
+            pathPoints = pathPoints,
+            onHomeClick = {
+                // QUI chiudiamo definitivamente tutto!
+                onStopClick()
             }
-            treasures.forEach { treasure ->
-                if (treasure.isVisible) {
-                    Marker(
-                        state = MarkerState(position = treasure.position),
-                        title = "Tesoro ${treasure.type.name}",
-                        icon = when(treasure.type) {
-                            TreasureType.COMMON -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
-                            TreasureType.RARE -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
-                            TreasureType.LEGENDARY -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE) // HUE_GOLD non esiste, ORANGE è il più vicino!
-                        }
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 1. LA MAPPA
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(isMyLocationEnabled = true),
+                uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
+            ) {
+                // Disegna il percorso fatto finora
+                if (plannedRoute.isNotEmpty()) {
+                    Polyline(
+                        points = plannedRoute,
+                        color = Color.Gray.copy(alpha = 0.5f),
+                        width = 12f,
+                        pattern = listOf(Dash(20f), Gap(10f)),
+                        jointType = JointType.ROUND
                     )
                 }
+
+                // 2. DISEGNA IL PERCORSO EFFETTIVO (VERDE PIENO)
+                if (pathPoints.isNotEmpty()) {
+                    Polyline(
+                        points = pathPoints,
+                        color = Color(0xFF45D084),
+                        width = 18f,
+                        jointType = JointType.ROUND
+                    )
+                }
+                treasures.forEach { treasure ->
+                    if (treasure.isVisible) {
+                        Marker(
+                            state = MarkerState(position = treasure.position),
+                            title = "Tesoro ${treasure.type.name}",
+                            icon = when (treasure.type) {
+                                TreasureType.COMMON -> BitmapDescriptorFactory.defaultMarker(
+                                    BitmapDescriptorFactory.HUE_GREEN
+                                )
+
+                                TreasureType.RARE -> BitmapDescriptorFactory.defaultMarker(
+                                    BitmapDescriptorFactory.HUE_AZURE
+                                )
+
+                                TreasureType.LEGENDARY -> BitmapDescriptorFactory.defaultMarker(
+                                    BitmapDescriptorFactory.HUE_ORANGE
+                                ) // HUE_GOLD non esiste, ORANGE è il più vicino!
+                            }
+                        )
+                    }
+                }
             }
-        }
 
-        // 2. HUD - Statistiche in alto
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 40.dp, start = 16.dp, end = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            StatChip(text = "${String.format("%.2f", totalDistance)} KM", color = Color.White)
-            StatChip(text = "$totalXp XP", color = Color(0xFFFFD166), icon = Icons.Default.Star)
-        }
+            // 2. HUD - Statistiche in alto
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 40.dp, start = 16.dp, end = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                StatChip(text = "${String.format("%.2f", totalDistance)} KM", color = Color.White)
+                StatChip(text = "$totalXp XP", color = Color(0xFFFFD166), icon = Icons.Default.Star)
+            }
 
-        // 3. Tasto STOP in basso
-        Button(
-            onClick = onStopClick,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
-                .height(60.dp)
-                .fillMaxWidth(0.5f),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-            shape = RoundedCornerShape(30.dp),
-            elevation = ButtonDefaults.buttonElevation(8.dp)
-        ) {
-            Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
-            Spacer(Modifier.width(8.dp))
-            Text("TERMINA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            // 3. Tasto STOP in basso
+            Button(
+                onClick = { showSummary = true },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+                    .height(60.dp)
+                    .fillMaxWidth(0.5f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                shape = RoundedCornerShape(30.dp),
+                elevation = ButtonDefaults.buttonElevation(8.dp)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("TERMINA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
         }
     }
 }

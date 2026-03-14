@@ -13,10 +13,13 @@ import com.example.treasurewalk.data.manager.RouteGenerator
 import com.example.treasurewalk.data.manager.Treasure
 import kotlinx.coroutines.Dispatchers
 import com.example.treasurewalk.data.manager.TreasureManager
+import com.example.treasurewalk.data.remote.RoutingRepository
 
 class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
     private val routeGenerator = RouteGenerator()
+
+    private val routingRepository = RoutingRepository()
     private val treasureManager = TreasureManager()
     val treasuresOnMap = treasureManager.activeTreasures
     // Percorso pianificato (quello grigio da seguire)
@@ -52,14 +55,29 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
     fun startNewMission(startLoc: LatLng, targetKm: Float) {
         viewModelScope.launch(Dispatchers.Default) {
-            // Generiamo il percorso
-            val route = routeGenerator.generateLoop(startLoc, targetKm.toDouble())
-            _plannedRoute.value = route
+            // 1. Generiamo i vertici "sbilenchi" con la tua matematica
+            val rawRoute = routeGenerator.generateLoop(startLoc, targetKm.toDouble())
 
-            // EXTRA: Generiamo anche 3 tesori casuali lungo la strada per iniziare!
-            treasureManager.spawnTreasureNear(startLoc, minRadius = 100.0, maxRadius = (targetKm * 1000) / 2.0)
-            treasureManager.spawnTreasureNear(startLoc, minRadius = 100.0, maxRadius = (targetKm * 1000) / 2.0)
-            treasureManager.spawnTreasureNear(startLoc, minRadius = 100.0, maxRadius = (targetKm * 1000) / 2.0)
+            // 2. Chiediamo a ORS di calcolare i marciapiedi reali tra questi punti!
+            val realWalkingRoute = routingRepository.getRealWalkingPath(rawRoute)
+
+            // 3. Diamo alla mappa il percorso reale, non quello dritto
+            _plannedRoute.value = realWalkingRoute
+
+            // 4. Seminiamo i tesori!
+            // Invece di usare rawRoute, usiamo i punti del percorso reale!
+            val numberOfTreasures = (targetKm * 2).toInt().coerceAtLeast(3)
+
+            // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
+            if (realWalkingRoute.isNotEmpty()) {
+                val step = realWalkingRoute.size / numberOfTreasures
+                for (i in 1..numberOfTreasures) {
+                    // Prendiamo un punto esatto lungo il sentiero calcolato
+                    val spawnIndex = (i * step).coerceAtMost(realWalkingRoute.size - 1)
+                    val spawnPoint = realWalkingRoute[spawnIndex]
+                    treasureManager.spawnTreasureNear(spawnPoint, minRadius = 5.0, maxRadius = 30.0)
+                }
+            }
         }
     }
     private fun salvaTesoroNelDb(treasure: Treasure, userLatLng: LatLng) {
@@ -115,4 +133,5 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
         }
         return distance / 1000.0 // Convertiamo in km
     }
+
 }

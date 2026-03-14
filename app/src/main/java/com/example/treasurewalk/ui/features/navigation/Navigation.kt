@@ -2,6 +2,8 @@ package com.example.treasurewalk.ui.features.navigation
 
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -18,13 +20,18 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.example.treasurewalk.ui.components.PermissionProvider
+import com.example.treasurewalk.ui.features.inventory.InventoryScreen
+import com.example.treasurewalk.ui.features.profile.ProfileScreen
 import com.example.treasurewalk.ui.features.setup.SetupScreen
-import com.google.android.gms.maps.model.LatLng
+import com.example.treasurewalk.ui.features.summary.SummaryScreen
 
 object Routes {
     const val SETUP = "setup"
     const val LANDING = "landing"
     const val HOME = "home"
+    const val INVENTORY = "inventory"
+    const val PROFILE = "profile"
+    const val SUMMARY = "summary"
     const val PLAY = "play/{targetKm}"
 
     fun createPlayRoute(km: Float): String {
@@ -66,8 +73,8 @@ fun AppNavigation() {
             ) { requestPermissions ->
                 HomeScreen(
                     onPlayClick = { requestPermissions() }, // Chiama il controllo permessi
-                    onInventoryClick = { /* ... */ },
-                    onProfileClick = { /* ... */ }
+                    onInventoryClick = { navController.navigate(Routes.INVENTORY) },
+                    onProfileClick = { navController.navigate(Routes.PROFILE) }
                 )
             }
         }
@@ -107,6 +114,37 @@ fun AppNavigation() {
                 onStopClick = {
                     context.stopService(Intent(context, WalkTrackingService::class.java))
                     navController.popBackStack(Routes.HOME, inclusive = false) // Torniamo dritti alla Home
+                }
+            )
+        }
+        composable(Routes.INVENTORY) {
+            InventoryScreen(
+                viewModel = viewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.PROFILE) {
+            ProfileScreen(
+                viewModel = viewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.SUMMARY) {
+            // Recuperiamo i dati correnti dal ViewModel prima che vengano resettati
+            val distance by viewModel.totalDistance.collectAsState()
+            val pathPoints by viewModel.pathPoints.collectAsState()
+            val treasures by viewModel.collectedTreasures.collectAsState()
+            // Nota: in un'app reale filtreresti i tesori presi solo "oggi"
+
+            SummaryScreen(
+                distance = distance,
+                xpGained = (distance * 100).toInt(), // Esempio di XP basato su KM
+                treasuresCount = 3, // Questo dato andrebbe passato dinamicamente
+                pathPoints = pathPoints,
+                onHomeClick = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
                 }
             )
         }
