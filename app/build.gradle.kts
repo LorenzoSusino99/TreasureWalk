@@ -1,7 +1,17 @@
+import java.util.Properties
+
+// In alto, leggi il file
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -18,6 +28,10 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+
+        val mapsApiKey = localProperties.getProperty("MAPS_API_KEY") ?: ""
+        manifestPlaceholders["mapsApiKey"] = mapsApiKey
     }
 
     buildTypes {
@@ -52,6 +66,10 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.lifecycle.service)
+    implementation(libs.play.services.location)
+    implementation(libs.play.services.maps)
+    implementation(libs.androidx.compose.ui.text)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -59,4 +77,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation(libs.maps.compose)
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
+    implementation(libs.compose.material.icons.extended)
 }
