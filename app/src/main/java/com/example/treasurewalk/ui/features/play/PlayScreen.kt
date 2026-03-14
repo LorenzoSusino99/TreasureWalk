@@ -23,17 +23,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontWeight
+import com.example.treasurewalk.data.manager.TreasureType
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.Dash
+import com.google.android.gms.maps.model.Gap
+import com.google.android.gms.maps.model.JointType
 
 @Composable
 fun PlayScreen(
     viewModel: WalkViewModel,
+    targetKm: Float,
     onStopClick: () -> Unit
 ) {
     // Osserviamo i dati dal ViewModel
     val userLocation by viewModel.currentLocation.collectAsState()
     val pathPoints by viewModel.pathPoints.collectAsState()
+    val plannedRoute by viewModel.plannedRoute.collectAsState()
     val totalDistance by viewModel.totalDistance.collectAsState()
     val totalXp by viewModel.totalXp.collectAsState()
+    val treasures by viewModel.treasuresOnMap.collectAsState()
 
     // Stato della telecamera: si centra sull'utente quando la posizione cambia
     val cameraPositionState = rememberCameraPositionState()
@@ -44,12 +52,17 @@ fun PlayScreen(
         val location = userLocation
         // Centriamo la telecamera SOLO se abbiamo una posizione E non l'abbiamo ancora mai centrata
         if (location != null && !isMapCentered) {
+            val startLatLng = LatLng(location.latitude, location.longitude)
+
+            // Azione A: Centriamo la telecamera sull'utente
             cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(location.latitude, location.longitude),
-                    17f
+                com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
+                    startLatLng, 16f
                 )
             )
+
+            // Azione B: GENERIAMO L'ANELLO E I TESORI!
+            viewModel.startNewMission(startLoc = startLatLng, targetKm = targetKm)
             isMapCentered = true // Aggiorniamo il flag: non lo faremo più!
         }
     }
@@ -63,12 +76,37 @@ fun PlayScreen(
             uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
         ) {
             // Disegna il percorso fatto finora
+            if (plannedRoute.isNotEmpty()) {
+                Polyline(
+                    points = plannedRoute,
+                    color = Color.Gray.copy(alpha = 0.5f),
+                    width = 12f,
+                    pattern = listOf(Dash(20f), Gap(10f)),
+                    jointType = JointType.ROUND
+                )
+            }
+
+            // 2. DISEGNA IL PERCORSO EFFETTIVO (VERDE PIENO)
             if (pathPoints.isNotEmpty()) {
                 Polyline(
                     points = pathPoints,
                     color = Color(0xFF45D084),
-                    width = 15f
+                    width = 18f,
+                    jointType = JointType.ROUND
                 )
+            }
+            treasures.forEach { treasure ->
+                if (treasure.isVisible) {
+                    Marker(
+                        state = MarkerState(position = treasure.position),
+                        title = "Tesoro ${treasure.type.name}",
+                        icon = when(treasure.type) {
+                            TreasureType.COMMON -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
+                            TreasureType.RARE -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                            TreasureType.LEGENDARY -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE) // HUE_GOLD non esiste, ORANGE è il più vicino!
+                        }
+                    )
+                }
             }
         }
 
