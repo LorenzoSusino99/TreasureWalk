@@ -1,5 +1,9 @@
 package com.example.treasurewalk.ui.features.play
 
+import android.Manifest
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +39,7 @@ import com.google.android.gms.maps.model.JointType
 fun PlayScreen(
     viewModel: WalkViewModel,
     targetKm: Float,
-    onNavigateToAR: (Int) -> Unit,
+    onNavigateToAR: (String) -> Unit,
     onStopClick: () -> Unit
 ) {
     // Osserviamo i dati dal ViewModel
@@ -50,6 +54,26 @@ fun PlayScreen(
     val cameraPositionState = rememberCameraPositionState()
 
     var isMapCentered by remember { mutableStateOf(false) }
+
+    var pendingTreasureId by remember { mutableStateOf<String?>(null) }
+
+    // 2. IL LANCIATORE DEL PERMESSO FOTOCAMERA
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            if (isGranted) {
+                // Permesso accordato! Ora possiamo navigare in sicurezza
+                pendingTreasureId?.let { id ->
+                    onNavigateToAR(id)
+                }
+            } else {
+                // Permesso negato
+                //Toast.makeText(context, "Serve la fotocamera per l'AR!", Toast.LENGTH_SHORT).show()
+            }
+            // Svuotiamo la memoria
+            pendingTreasureId = null
+        }
+    )
 
     LaunchedEffect(userLocation) {
         val location = userLocation
@@ -150,13 +174,13 @@ fun PlayScreen(
 
                                     // 3. Eseguiamo il tuo controllo!
                                     if (distanceInMeters < 20f) { // 20 metri di raggio
-                                        onNavigateToAR(treasure.id.toInt())
-                                    } else {
+                                        pendingTreasureId = treasure.id
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)} else {
                                         // Sostituisci questo con un vero Toast o una Snackbar
                                         // Toast.makeText(context, "Sei a ${distanceInMeters.toInt()}m. Avvicinati ancora!", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                                true // Consuma il click (impedisce che la mappa centri la visuale in automatico)
+                                true
                             }
                         )
                     }

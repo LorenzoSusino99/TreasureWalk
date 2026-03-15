@@ -32,6 +32,9 @@ class WalkTrackingService : LifecycleService() {
 
         private val _pathPoints = MutableStateFlow<List<LatLng>>(emptyList())
         val pathPoints = _pathPoints.asStateFlow()
+        fun clearPath() {
+            _pathPoints.value = emptyList()
+        }
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient

@@ -41,13 +41,10 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
         // diciamo al TreasureManager di controllare le distanze!
         viewModelScope.launch {
             currentLocation.collect { location ->
-                if (location != null) {
-                    val userLatLng = LatLng(location.latitude, location.longitude)
+                location?.let {
+                    val userLatLng = LatLng(it.latitude, it.longitude)
 
-                    treasureManager.checkProximity(userLatLng) { raccolto ->
-                        // Quando la callback ci avvisa che abbiamo preso un tesoro, lo salviamo nel DB!
-                        salvaTesoroNelDb(raccolto, userLatLng)
-                    }
+                    treasureManager.checkProximity(userLatLng)
                 }
             }
         }
@@ -55,6 +52,8 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
     fun startNewMission(startLoc: LatLng, targetKm: Float) {
         viewModelScope.launch(Dispatchers.Default) {
+
+            WalkTrackingService.clearPath()
             // 1. Generiamo i vertici "sbilenchi" con la tua matematica
             val rawRoute = routeGenerator.generateLoop(startLoc, targetKm.toDouble())
 
@@ -66,7 +65,7 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
             // 4. Seminiamo i tesori!
             // Invece di usare rawRoute, usiamo i punti del percorso reale!
-            val numberOfTreasures = (targetKm * 2).toInt().coerceAtLeast(3)
+            val numberOfTreasures = (targetKm * 10).toInt().coerceAtLeast(3)
 
             // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
             if (realWalkingRoute.isNotEmpty()) {

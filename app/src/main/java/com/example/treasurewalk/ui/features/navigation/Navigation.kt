@@ -38,7 +38,7 @@ object Routes {
 
     const val AR_CAPTURE = "ar_capture/{treasureId}"
 
-    fun createCaptureRoute(treasureId: Int): String {
+    fun createCaptureRoute(treasureId: String): String {
         return "ar_capture/$treasureId"
     }
     fun createPlayRoute(km: Float): String {
@@ -165,7 +165,8 @@ fun AppNavigation() {
             val treasureId = backStackEntry.arguments?.getString("treasureId")
 
             // Recuperiamo il tesoro specifico dal manager o dal ViewModel
-            val targetTreasure = viewModel.treasuresOnMap.value.find { it.id == treasureId }
+            val treasures by viewModel.treasuresOnMap.collectAsState()
+            val targetTreasure = treasures.find { it.id == treasureId }
             val userLoc by viewModel.currentLocation.collectAsState()
 
             if (targetTreasure != null && userLoc != null) {

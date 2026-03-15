@@ -60,14 +60,14 @@ class TreasureManager {
      * Controlla la distanza tra l'utente e i tesori.
      * Restituisce il tesoro se l'utente è abbastanza vicino da raccoglierlo (< 15 metri).
      */
-    fun checkProximity(userLocation: LatLng, onTreasureFound: (Treasure) -> Unit) {
+    fun checkProximity(userLocation: LatLng) {
 
         // .update è una funzione di Kotlin Coroutines per modificare gli StateFlow in modo sicuro
         _activeTreasures.update { currentList ->
 
             // mapNotNull analizza ogni tesoro della lista vecchia per creare la lista nuova.
             // Regola d'oro: se restituisci 'null', il tesoro viene CANCELLATO.
-            currentList.mapNotNull { treasure ->
+            currentList.map { treasure ->
 
                 // 1. Calcoliamo la distanza
                 val results = FloatArray(1)
@@ -80,11 +80,6 @@ class TreasureManager {
 
                 // 2. Decidiamo il destino di questo singolo tesoro
                 when {
-                    // CASO A: Il giocatore è sopra il tesoro (< 15 metri).
-                    distance < 15f -> {
-                        onTreasureFound(treasure) // Avvisiamo l'app che abbiamo vinto!
-                        null //mapNotNull ignora i null, quindi il tesoro sparisce dalla mappa.
-                    }
 
                     // CASO B: Il giocatore si avvicina (< 100 metri) ma il tesoro era invisibile.
                     distance < 100f && !treasure.isVisible -> {
