@@ -19,7 +19,9 @@ import com.example.treasurewalk.ui.viewmodels.WalkViewModelFactory
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import com.example.treasurewalk.data.local.TreasureRarity
 import com.example.treasurewalk.ui.components.PermissionProvider
+import com.example.treasurewalk.ui.features.ar.ARCaptureScreen
 import com.example.treasurewalk.ui.features.inventory.InventoryScreen
 import com.example.treasurewalk.ui.features.profile.ProfileScreen
 import com.example.treasurewalk.ui.features.setup.SetupScreen
@@ -34,6 +36,11 @@ object Routes {
     const val SUMMARY = "summary"
     const val PLAY = "play/{targetKm}"
 
+    const val AR_CAPTURE = "ar_capture/{treasureId}"
+
+    fun createCaptureRoute(treasureId: Int): String {
+        return "ar_capture/$treasureId"
+    }
     fun createPlayRoute(km: Float): String {
         return "play/$km"
     }
@@ -111,6 +118,9 @@ fun AppNavigation() {
             PlayScreen(
                 viewModel = viewModel,
                 targetKm = extractedKm,
+                onNavigateToAR = { treasureId ->
+                    navController.navigate(Routes.createCaptureRoute(treasureId))
+                },
                 onStopClick = {
                     context.stopService(Intent(context, WalkTrackingService::class.java))
                     navController.popBackStack(Routes.HOME, inclusive = false) // Torniamo dritti alla Home
@@ -148,5 +158,37 @@ fun AppNavigation() {
                 }
             )
         }
+        composable(
+            route = Routes.AR_CAPTURE,
+            arguments = listOf(navArgument("treasureId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val treasureId = backStackEntry.arguments?.getString("treasureId")
+
+            // Recuperiamo il tesoro specifico dal manager o dal ViewModel
+            val targetTreasure = viewModel.treasuresOnMap.value.find { it.id == treasureId }
+            val userLoc by viewModel.currentLocation.collectAsState()
+
+            if (targetTreasure != null && userLoc != null) {
+                ARCaptureScreen(
+                    targetTreasure = targetTreasure,
+                    userLocation = com.google.android.gms.maps.model.LatLng(
+                        userLoc!!.latitude,
+                        userLoc!!.longitude
+                    ),
+                    onCaptured = {
+                        // Logica di successo
+                        viewModel.onTreasureCollected(
+                            targetTreasure.position.latitude,
+                            targetTreasure.position.longitude,
+                            TreasureRarity.valueOf(targetTreasure.type.name),
+                            targetTreasure.type.xp
+                        )
+
+                        navController.popBackStack() // Torna alla mappa
+                    }
+                )
+            }
+        }
     }
+
 }

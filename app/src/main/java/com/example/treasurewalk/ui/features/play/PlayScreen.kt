@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontWeight
 import com.example.treasurewalk.data.manager.TreasureType
+import com.example.treasurewalk.ui.features.navigation.Routes
 import com.example.treasurewalk.ui.features.summary.SummaryScreen
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.Dash
@@ -34,6 +35,7 @@ import com.google.android.gms.maps.model.JointType
 fun PlayScreen(
     viewModel: WalkViewModel,
     targetKm: Float,
+    onNavigateToAR: (Int) -> Unit,
     onStopClick: () -> Unit
 ) {
     // Osserviamo i dati dal ViewModel
@@ -132,6 +134,29 @@ fun PlayScreen(
                                 TreasureType.LEGENDARY -> BitmapDescriptorFactory.defaultMarker(
                                     BitmapDescriptorFactory.HUE_ORANGE
                                 ) // HUE_GOLD non esiste, ORANGE è il più vicino!
+                            },
+                            onClick = {
+                                // 1. Assicuriamoci che l'utente abbia una posizione valida
+                                val loc = userLocation
+                                if (loc != null) {
+                                    // 2. Calcoliamo la distanza in metri tra l'utente e QUESTO specifico tesoro
+                                    val results = FloatArray(1)
+                                    android.location.Location.distanceBetween(
+                                        loc.latitude, loc.longitude,
+                                        treasure.position.latitude, treasure.position.longitude,
+                                        results
+                                    )
+                                    val distanceInMeters = results[0]
+
+                                    // 3. Eseguiamo il tuo controllo!
+                                    if (distanceInMeters < 20f) { // 20 metri di raggio
+                                        onNavigateToAR(treasure.id.toInt())
+                                    } else {
+                                        // Sostituisci questo con un vero Toast o una Snackbar
+                                        // Toast.makeText(context, "Sei a ${distanceInMeters.toInt()}m. Avvicinati ancora!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                true // Consuma il click (impedisce che la mappa centri la visuale in automatico)
                             }
                         )
                     }
