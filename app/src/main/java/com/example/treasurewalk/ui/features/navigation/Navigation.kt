@@ -1,10 +1,22 @@
 package com.example.treasurewalk.ui.features.navigation
 
 import android.content.Intent
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -51,10 +63,11 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    // Inizializziamo il Database e il ViewModel
-    // (In un progetto reale useremmo Hilt/Koin, ma qui seguiamo la via diretta)
+    // 1. PRIMA inizializziamo il Database
     val database = WalkDatabase.getDatabase(context)
-    val viewModel: WalkViewModel = viewModel(
+
+    // 2. POI creiamo l'UNICO ViewModel globale di tutta l'app, usando la Factory corretta!
+    val sharedViewModel: WalkViewModel = viewModel(
         factory = WalkViewModelFactory(database.treasureDao())
     )
 
@@ -79,77 +92,69 @@ fun AppNavigation() {
                 }
             ) { requestPermissions ->
                 HomeScreen(
-                    onPlayClick = { requestPermissions() }, // Chiama il controllo permessi
+                    onPlayClick = { requestPermissions() },
                     onInventoryClick = { navController.navigate(Routes.INVENTORY) },
                     onProfileClick = { navController.navigate(Routes.PROFILE) }
                 )
             }
         }
 
+        // 3. SETUP
         composable(Routes.SETUP) {
             SetupScreen(
                 onStartMission = { chosenKm ->
-                    // ORA che abbiamo i KM, accendiamo il GPS!
                     val intent = Intent(context, WalkTrackingService::class.java)
                     ContextCompat.startForegroundService(context, intent)
-
-                    // Navighiamo verso PLAY passandogli i KM scelti
                     navController.navigate(Routes.createPlayRoute(chosenKm))
                 }
             )
         }
 
-        // 3. PLAY (LA MAPPA)
+        // 4. PLAY (LA MAPPA)
         composable(
             route = Routes.PLAY,
-            // Diciamo a Compose che ci aspettiamo un numero decimale (Float)
             arguments = listOf(navArgument("targetKm") { type = NavType.FloatType })
         ) { backStackEntry ->
-
-            // Estraiamo il numero dal "pacchetto" (se per caso manca, usiamo 2.0f di default)
             val extractedKm = backStackEntry.arguments?.getFloat("targetKm") ?: 2f
 
-            // Creiamo il ViewModel legato a questa singola partita
-            val viewModel: WalkViewModel = viewModel(
-                factory = WalkViewModelFactory(database.treasureDao())
-            )
-
-            // Qui dovrai passare targetKm alla UI o usarlo direttamente
             PlayScreen(
-                viewModel = viewModel,
+                viewModel = sharedViewModel, // ✅ Usiamo il ViewModel globale
                 targetKm = extractedKm,
                 onNavigateToAR = { treasureId ->
                     navController.navigate(Routes.createCaptureRoute(treasureId))
                 },
                 onStopClick = {
                     context.stopService(Intent(context, WalkTrackingService::class.java))
-                    navController.popBackStack(Routes.HOME, inclusive = false) // Torniamo dritti alla Home
+                    navController.popBackStack(Routes.HOME, inclusive = false)
                 }
             )
         }
+
+        // 5. INVENTARIO E PROFILO
         composable(Routes.INVENTORY) {
             InventoryScreen(
-                viewModel = viewModel,
+                viewModel = sharedViewModel, // ✅ Usiamo il ViewModel globale
                 onBackClick = { navController.popBackStack() }
             )
         }
+
         composable(Routes.PROFILE) {
             ProfileScreen(
-                viewModel = viewModel,
+                viewModel = sharedViewModel, // ✅ Usiamo il ViewModel globale
                 onBackClick = { navController.popBackStack() }
             )
         }
+
+        // 6. SUMMARY
         composable(Routes.SUMMARY) {
-            // Recuperiamo i dati correnti dal ViewModel prima che vengano resettati
-            val distance by viewModel.totalDistance.collectAsState()
-            val pathPoints by viewModel.pathPoints.collectAsState()
-            val treasures by viewModel.collectedTreasures.collectAsState()
-            // Nota: in un'app reale filtreresti i tesori presi solo "oggi"
+            val distance by sharedViewModel.totalDistance.collectAsState()
+            val pathPoints by sharedViewModel.pathPoints.collectAsState()
+            val treasures by sharedViewModel.collectedTreasures.collectAsState()
 
             SummaryScreen(
                 distance = distance,
-                xpGained = (distance * 100).toInt(), // Esempio di XP basato su KM
-                treasuresCount = 3, // Questo dato andrebbe passato dinamicamente
+                xpGained = (distance * 100).toInt(),
+                treasuresCount = 3,
                 pathPoints = pathPoints,
                 onHomeClick = {
                     navController.navigate(Routes.HOME) {
@@ -158,16 +163,18 @@ fun AppNavigation() {
                 }
             )
         }
+
+        // 7. AR CAPTURE
         composable(
             route = Routes.AR_CAPTURE,
             arguments = listOf(navArgument("treasureId") { type = NavType.StringType })
         ) { backStackEntry ->
             val treasureId = backStackEntry.arguments?.getString("treasureId")
 
-            // Recuperiamo il tesoro specifico dal manager o dal ViewModel
-            val treasures by viewModel.treasuresOnMap.collectAsState()
-            val targetTreasure = treasures.find { it.id == treasureId }
-            val userLoc by viewModel.currentLocation.collectAsState()
+            val treasures by sharedViewModel.treasuresOnMap.collectAsState()
+            // ✅ Cerchiamo il tesoro nella lista globale
+            val targetTreasure = treasures.find { it.id == treasureId } // Oppure it.id.toString() se id è Int
+            val userLoc by sharedViewModel.currentLocation.collectAsState()
 
             if (targetTreasure != null && userLoc != null) {
                 ARCaptureScreen(
@@ -177,19 +184,26 @@ fun AppNavigation() {
                         userLoc!!.longitude
                     ),
                     onCaptured = {
-                        // Logica di successo
-                        viewModel.onTreasureCollected(
+                        sharedViewModel.onTreasureCollected(
                             targetTreasure.position.latitude,
                             targetTreasure.position.longitude,
                             TreasureRarity.valueOf(targetTreasure.type.name),
                             targetTreasure.type.xp
                         )
-
-                        navController.popBackStack() // Torna alla mappa
+                        navController.popBackStack()
                     }
                 )
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Red), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("ERRORE DI NAVIGAZIONE!", color = Color.White, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("ID Cercato: $treasureId", color = Color.White)
+                        Text("Tesoro trovato: ${targetTreasure != null}", color = Color.White)
+                        Text("Posizione GPS presente: ${userLoc != null}", color = Color.White)
+                    }
+                }
             }
         }
     }
-
 }
