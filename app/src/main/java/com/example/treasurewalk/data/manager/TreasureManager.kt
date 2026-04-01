@@ -94,4 +94,11 @@ class TreasureManager {
             }
         }
     }
+    // Rimuove un tesoro dalla mappa una volta raccolto
+    fun removeTreasure(treasureId: String) {
+        _activeTreasures.update { currentList ->
+            // Teniamo nella lista solo i tesori che NON hanno questo ID
+            currentList.filterNot { it.id == treasureId }
+        }
+    }
 }

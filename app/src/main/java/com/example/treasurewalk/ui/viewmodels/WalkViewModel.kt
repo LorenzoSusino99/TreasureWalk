@@ -65,7 +65,7 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
             // 4. Seminiamo i tesori!
             // Invece di usare rawRoute, usiamo i punti del percorso reale!
-            val numberOfTreasures = (targetKm * 10).toInt().coerceAtLeast(3)
+            val numberOfTreasures = (targetKm * 50).toInt().coerceAtLeast(3)
 
             // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
             if (realWalkingRoute.isNotEmpty()) {
@@ -104,7 +104,8 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
     // Funzione per raccogliere un tesoro
-    fun onTreasureCollected(lat: Double, lng: Double, type: TreasureRarity, xp: Int) {
+    fun onTreasureCollected(treasureId: String, lat: Double, lng: Double, type: TreasureRarity, xp: Int) {
+        // 1. Salviamo nel database locale (la tua logica originale perfetta)
         viewModelScope.launch {
             val newTreasure = TreasureEntity(
                 type = type,
@@ -114,6 +115,9 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             )
             treasureDao.insertTreasure(newTreasure)
         }
+
+        // 2. Diciamo al manager di farlo sparire dalla mappa!
+        treasureManager.removeTreasure(treasureId)
     }
 
     // Algoritmo di Haversine per calcolare la distanza tra punti GPS

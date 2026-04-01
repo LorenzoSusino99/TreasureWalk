@@ -184,11 +184,13 @@ fun AppNavigation() {
                         userLoc!!.longitude
                     ),
                     onCaptured = {
+                        // Passiamo l'ID e i dati al ViewModel
                         sharedViewModel.onTreasureCollected(
-                            targetTreasure.position.latitude,
-                            targetTreasure.position.longitude,
-                            TreasureRarity.valueOf(targetTreasure.type.name),
-                            targetTreasure.type.xp
+                            treasureId = targetTreasure.id, // L'ID cruciale!
+                            lat = targetTreasure.position.latitude,
+                            lng = targetTreasure.position.longitude,
+                            type = com.example.treasurewalk.data.local.TreasureRarity.valueOf(targetTreasure.type.name),
+                            xp = targetTreasure.type.xp
                         )
                         navController.popBackStack()
                     }
