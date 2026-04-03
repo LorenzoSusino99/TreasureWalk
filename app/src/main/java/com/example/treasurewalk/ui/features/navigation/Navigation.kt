@@ -149,12 +149,15 @@ fun AppNavigation() {
         composable(Routes.SUMMARY) {
             val distance by sharedViewModel.totalDistance.collectAsState()
             val pathPoints by sharedViewModel.pathPoints.collectAsState()
-            val treasures by sharedViewModel.collectedTreasures.collectAsState()
+
+            // Leggiamo i dati VERI dal ViewModel
+            val allTreasures by sharedViewModel.collectedTreasures.collectAsState()
+            val totalXp by sharedViewModel.totalXp.collectAsState()
 
             SummaryScreen(
                 distance = distance,
-                xpGained = (distance * 100).toInt(),
-                treasuresCount = 3,
+                xpGained = totalXp, // Usa l'XP vero!
+                treasuresCount = allTreasures.size, // Usa il conto vero!
                 pathPoints = pathPoints,
                 onHomeClick = {
                     navController.navigate(Routes.HOME) {
@@ -196,15 +199,7 @@ fun AppNavigation() {
                     }
                 )
             } else {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Red), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ERRORE DI NAVIGAZIONE!", color = Color.White, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("ID Cercato: $treasureId", color = Color.White)
-                        Text("Tesoro trovato: ${targetTreasure != null}", color = Color.White)
-                        Text("Posizione GPS presente: ${userLoc != null}", color = Color.White)
-                    }
-                }
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black))
             }
         }
     }

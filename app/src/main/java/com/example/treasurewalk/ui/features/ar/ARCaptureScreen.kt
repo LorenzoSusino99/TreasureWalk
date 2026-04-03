@@ -68,12 +68,12 @@ fun ARCaptureScreen(
     var frame by remember { mutableStateOf<Frame?>(null) }
     var isEngineReady by remember { mutableStateOf(false) }
 
-    var hasVibrated by remember { mutableStateOf(false) }
-    var showDigWarning by remember { mutableStateOf(false) }
+    var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
+    var showDigWarning by remember(targetTreasure.id) { mutableStateOf(false) }
 
     // Partiamo dalla fase SEARCHING ora!
-    var currentPhase by remember { mutableStateOf(ARPhase.SEARCHING) }
-    var digCount by remember { mutableStateOf(0) }
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
+    var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     // --- LOGICA BUSSOLA E DISTANZA ---
     val heading = rememberCompassHeading()
