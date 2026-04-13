@@ -45,6 +45,7 @@ import io.github.sceneview.rememberNodes
 import io.github.sceneview.rememberOnGestureListener
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.google.ar.core.Pose
 
 enum class ARPhase {
     SEARCHING, // Cerca la posizione seguendo la freccia
@@ -72,13 +73,17 @@ fun ARCaptureScreen(
     var showDigWarning by remember(targetTreasure.id) { mutableStateOf(false) }
 
     // Partiamo dalla fase SEARCHING ora!
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     // --- LOGICA BUSSOLA E DISTANZA ---
     val heading = rememberCompassHeading()
     var distanceToTreasure by remember { mutableStateOf(999f) }
     var bearingToTreasure by remember { mutableStateOf(0f) }
+
+    var shovelAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
+    // Aggiungiamo la memoria per la Sessione AR
+    var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
     // Calcoliamo la distanza e l'angolo ogni volta che l'utente si muove
     LaunchedEffect(userLocation) {
@@ -108,8 +113,10 @@ fun ARCaptureScreen(
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
                 config.focusMode = Config.FocusMode.AUTO
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+                config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
             },
             onSessionUpdated = { session, updatedFrame ->
+                arSession = session
                 frame = updatedFrame
                 if (!isEngineReady && updatedFrame != null) {
                     isEngineReady = true
@@ -119,36 +126,94 @@ fun ARCaptureScreen(
                 onSingleTapConfirmed = { motionEvent, node ->
                     when (currentPhase) {
                         ARPhase.DIGGING -> {
-                            val hitResults = frame?.hitTest(motionEvent.x, motionEvent.y)
-                            val planeHit = hitResults?.firstOrNull { it.trackable is Plane }
+                            // Non calcoliamo ancore se non è il tocco 1!
+                            if (digCount == 0) {
+                                // --- TOCCO 1: CREAZIONE ANCORA E PALA ---
+                                val hitResults = frame?.hitTest(motionEvent.x, motionEvent.y)
+                                var anchor = hitResults?.firstOrNull {
+                                    it.trackable is Plane ||
+                                            it.trackable is com.google.ar.core.Point ||
+                                            it.trackable is com.google.ar.core.InstantPlacementPoint
+                                }?.createAnchor()
 
-                            if (planeHit != null) {
-                                // HA COLPITO IL PAVIMENTO!
-                                showDigWarning = false
-                                digCount++
-                                if (digCount >= 3) {
-                                    val anchor = planeHit.createAnchor()
-                                    val anchorNode = AnchorNode(engine, anchor)
-                                    val modelInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
-
-                                    val modelNode = ModelNode(modelInstance = modelInstance, scaleToUnits = 0.5f)
-                                    anchorNode.addChildNode(modelNode)
-                                    childNodes.add(anchorNode)
-                                    currentPhase = ARPhase.REVEALED
-
+                                if (anchor == null) {
+                                    try {
+                                        val cameraPose = frame?.camera?.pose
+                                        if (cameraPose != null && arSession != null) {
+                                            val fallbackPose = com.google.ar.core.Pose.makeTranslation(0f, -0.5f, -1.0f)
+                                            anchor = arSession!!.createAnchor(cameraPose.compose(fallbackPose))
+                                        }
+                                    } catch (e: Exception) { /* Ignoriamo per evitare crash se perde il tracking */ }
                                 }
-                            } else {
-                                showDigWarning = true
+
+                                if (anchor != null) {
+                                    showDigWarning = false
+                                    digCount = 1
+                                    shovelAnchorNode = AnchorNode(engine, anchor)
+
+                                    try {
+                                        val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
+                                        if (shovelInstance != null) {
+                                            val shovelModel = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
+                                            shovelModel.rotation = io.github.sceneview.math.Rotation(x = -135f, y = 0f, z = 0f)
+                                            shovelAnchorNode?.addChildNode(shovelModel)
+                                        }
+                                    } catch (e: Exception) {}
+
+                                    childNodes.add(shovelAnchorNode!!)
+                                } else {
+                                    showDigWarning = true
+                                }
+
+                            } else if (digCount == 1) {
+                                // --- TOCCO 2: INCLINAZIONE E VIBRAZIONE ---
+                                digCount = 2
+
+                                try {
+                                    val shovelModel = shovelAnchorNode?.childNodes?.firstOrNull() as? ModelNode
+                                    shovelModel?.rotation = io.github.sceneview.math.Rotation(x = -160f, y = 10f, z = 0f)
+                                } catch (e: Exception) { /* Fail-safe per la grafica */ }
+
+                                try {
+                                    // Blindiamo la vibrazione per evitare i capricci della MIUI!
+                                    triggerVibration(context)
+                                } catch (e: Exception) { }
+
+                            } else if (digCount == 2) {
+                                // --- TOCCO 3: FORZIERE ---
+                                digCount = 3
+
+                                // 1. Rubiamo l'ancora fisica (le coordinate GPS/AR) dalla pala
+                                val savedAnchor = shovelAnchorNode?.anchor
+
+                                // 2. Ora possiamo eliminare la pala in sicurezza
+                                shovelAnchorNode?.let { childNodes.remove(it) }
+
+                                // 3. Se l'ancora esiste, ci agganciamo il forziere
+                                if (savedAnchor != null) {
+                                    val chestAnchorNode = AnchorNode(engine, savedAnchor)
+
+                                    try {
+                                        val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
+
+                                        val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
+                                        chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = -90f, z = 0f)
+                                        chestAnchorNode.addChildNode(chestModel)
+
+                                    } catch (e: Exception) {}
+
+                                    childNodes.add(chestAnchorNode)
+                                }
+
+                                currentPhase = ARPhase.REVEALED
                             }
                         }
+
                         ARPhase.REVEALED -> {
-                            if (node != null) {
-                                currentPhase = ARPhase.COLLECTED
-                                // Aspettiamo 4 secondi per far godere la schermata di vittoria all'utente!
-                                coroutineScope.launch {
-                                    delay(4000)
-                                    onCaptured()
-                                }
+                            currentPhase = ARPhase.COLLECTED
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(4000)
+                                onCaptured()
                             }
                         }
                         else -> {}

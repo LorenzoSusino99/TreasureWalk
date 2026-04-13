@@ -65,7 +65,7 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
             // 4. Seminiamo i tesori!
             // Invece di usare rawRoute, usiamo i punti del percorso reale!
-            val numberOfTreasures = (targetKm * 50).toInt().coerceAtLeast(3)
+            val numberOfTreasures = (targetKm * 100).toInt().coerceAtLeast(3)
 
             // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
             if (realWalkingRoute.isNotEmpty()) {
