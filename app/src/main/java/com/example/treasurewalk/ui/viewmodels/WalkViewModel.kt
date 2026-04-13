@@ -2,18 +2,24 @@ package com.example.treasurewalk.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.maps.model.LatLng
 import com.example.treasurewalk.data.local.TreasureDao
 import com.example.treasurewalk.data.local.TreasureEntity
 import com.example.treasurewalk.data.local.TreasureRarity
-import com.example.treasurewalk.services.WalkTrackingService
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import com.example.treasurewalk.data.manager.RouteGenerator
 import com.example.treasurewalk.data.manager.Treasure
-import kotlinx.coroutines.Dispatchers
 import com.example.treasurewalk.data.manager.TreasureManager
 import com.example.treasurewalk.data.remote.RoutingRepository
+import com.example.treasurewalk.services.WalkTrackingService
+import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
@@ -64,8 +70,14 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             _plannedRoute.value = realWalkingRoute
 
             // 4. Seminiamo i tesori!
-            // Invece di usare rawRoute, usiamo i punti del percorso reale!
-            val numberOfTreasures = (targetKm * 100).toInt().coerceAtLeast(3)
+            
+            // --- TESTING: Genera 1 tesoro subito alla posizione di inizio ---
+            repeat(1) {
+                treasureManager.spawnTreasureNear(startLoc, minRadius = 2.0, maxRadius = 10.0)
+            }
+
+            // Riduciamo il numero di tesori a un range tra 5 e 10
+            val numberOfTreasures = Random.nextInt(5, 11)
 
             // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
             if (realWalkingRoute.isNotEmpty()) {
