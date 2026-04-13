@@ -26,6 +26,7 @@ fun SetupScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF3F4F6))
+            .systemBarsPadding()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

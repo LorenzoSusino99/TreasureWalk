@@ -36,6 +36,7 @@ fun InventoryScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF3F4F6))
+            .systemBarsPadding()
             .padding(16.dp)
     ) {
         // Header

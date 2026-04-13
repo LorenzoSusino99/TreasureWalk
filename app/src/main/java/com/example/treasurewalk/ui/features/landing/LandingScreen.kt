@@ -22,7 +22,8 @@ fun LandingScreen(onTimeout: () -> Unit) {
         Image(
             painter = painterResource(id = R.drawable.bg_landing),
             contentDescription = null,
-            contentScale = ContentScale.FillBounds
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
