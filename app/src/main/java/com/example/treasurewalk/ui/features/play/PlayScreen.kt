@@ -191,7 +191,8 @@ fun PlayScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 40.dp, start = 16.dp, end = 16.dp),
+                    .statusBarsPadding()
+                    .padding(top = 16.dp, start = 16.dp, end = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 StatChip(text = "${String.format("%.2f", totalDistance)} KM", color = Color.White)
@@ -203,6 +204,7 @@ fun PlayScreen(
                 onClick = { showSummary = true },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(bottom = 32.dp)
                     .height(60.dp)
                     .fillMaxWidth(0.5f),

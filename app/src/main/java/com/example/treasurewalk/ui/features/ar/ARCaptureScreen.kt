@@ -297,6 +297,7 @@ fun ARCaptureScreen(
                     text = instructionText,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                         .padding(bottom = 48.dp, start = 16.dp, end = 16.dp)
                         .background(Color.Black.copy(alpha = 0.8f), shape = RoundedCornerShape(12.dp))
                         .padding(16.dp),
