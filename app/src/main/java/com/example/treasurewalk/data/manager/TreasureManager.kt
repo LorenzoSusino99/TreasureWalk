@@ -1,7 +1,9 @@
 package com.example.treasurewalk.data.manager
 
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.*
@@ -22,7 +24,8 @@ data class Treasure(
     val position: LatLng,
     val type: TreasureType,
     val isVisible: Boolean = false,
-    val isCollected: Boolean = false
+    val isCollected: Boolean = false,
+    val hasVibrated: Boolean = false
 )
 
 class TreasureManager {
@@ -30,6 +33,10 @@ class TreasureManager {
     // Lista dei tesori attivi nella sessione corrente
     private val _activeTreasures = MutableStateFlow<List<Treasure>>(emptyList())
     val activeTreasures = _activeTreasures.asStateFlow()
+
+    // Canale per notificare la scoperta di un nuovo tesoro (vibrazione)
+    private val _newTreasureDiscovered = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val newTreasureDiscovered = _newTreasureDiscovered.asSharedFlow()
 
     /**
      * Genera un nuovo tesoro casuale intorno alla posizione dell'utente.
@@ -66,7 +73,6 @@ class TreasureManager {
         _activeTreasures.update { currentList ->
 
             // mapNotNull analizza ogni tesoro della lista vecchia per creare la lista nuova.
-            // Regola d'oro: se restituisci 'null', il tesoro viene CANCELLATO.
             currentList.map { treasure ->
 
                 // 1. Calcoliamo la distanza
@@ -83,7 +89,12 @@ class TreasureManager {
 
                     // CASO B: Il giocatore si avvicina (< 100 metri) ma il tesoro era invisibile.
                     distance < 100f && !treasure.isVisible -> {
-                        treasure.copy(isVisible = true)
+                        if (!treasure.hasVibrated) {
+                            _newTreasureDiscovered.tryEmit(Unit)
+                            treasure.copy(isVisible = true, hasVibrated = true)
+                        } else {
+                            treasure.copy(isVisible = true)
+                        }
                     }
 
                     // CASO C: Il giocatore è lontano, oppure il tesoro era già visibile e rimane tale.

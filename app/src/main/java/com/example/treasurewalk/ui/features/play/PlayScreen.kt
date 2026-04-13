@@ -1,6 +1,11 @@
 package com.example.treasurewalk.ui.features.play
 
 import android.Manifest
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.treasurewalk.ui.viewmodels.WalkViewModel
@@ -42,6 +48,7 @@ fun PlayScreen(
     onNavigateToAR: (String) -> Unit,
     onStopClick: () -> Unit
 ) {
+    val context = LocalContext.current
     // Osserviamo i dati dal ViewModel
     val userLocation by viewModel.currentLocation.collectAsState()
     val pathPoints by viewModel.pathPoints.collectAsState()
@@ -49,6 +56,13 @@ fun PlayScreen(
     val totalDistance by viewModel.totalDistance.collectAsState()
     val totalXp by viewModel.totalXp.collectAsState()
     val treasures by viewModel.treasuresOnMap.collectAsState()
+
+    // 1. ASCOLTO PER LA VIBRAZIONE
+    LaunchedEffect(Unit) {
+        viewModel.newTreasureDiscovered.collect {
+            triggerMapVibration(context)
+        }
+    }
 
     // Stato della telecamera: si centra sull'utente quando la posizione cambia
     val cameraPositionState = rememberCameraPositionState()
@@ -212,7 +226,7 @@ fun PlayScreen(
                 shape = RoundedCornerShape(30.dp),
                 elevation = ButtonDefaults.buttonElevation(8.dp)
             ) {
-                Icon(Icons.Default.Close, contentDescription = null, tint = Color.White)
+                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFFFFFF))
                 Spacer(Modifier.width(8.dp))
                 Text("TERMINA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
@@ -238,4 +252,25 @@ fun StatChip(text: String, color: Color, icon: androidx.compose.ui.graphics.vect
             Text(text = text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
+}
+
+fun triggerMapVibration(context: Context) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (vibrator.hasVibrator()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(300)
+            }
+        }
+    } catch (e: Exception) { }
 }

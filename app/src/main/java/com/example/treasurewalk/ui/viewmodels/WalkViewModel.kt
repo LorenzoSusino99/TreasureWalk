@@ -28,6 +28,10 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
     private val routingRepository = RoutingRepository()
     private val treasureManager = TreasureManager()
     val treasuresOnMap = treasureManager.activeTreasures
+    
+    // Espone il segnale di scoperta per la vibrazione
+    val newTreasureDiscovered = treasureManager.newTreasureDiscovered
+
     // Percorso pianificato (quello grigio da seguire)
     private val _plannedRoute = MutableStateFlow<List<LatLng>>(emptyList())
     val plannedRoute = _plannedRoute.asStateFlow()
