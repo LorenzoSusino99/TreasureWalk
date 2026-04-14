@@ -66,7 +66,8 @@ fun ARCaptureScreen(
     val childNodes = rememberNodes()
     val coroutineScope = rememberCoroutineScope()
 
-    var frame by remember { mutableStateOf<Frame?>(null) }
+    // Usiamo un array per tenere il frame senza scatenare la ricomposizione a 60fps
+    val currentFrameHolder = remember { arrayOfNulls<Frame>(1) }
     var isEngineReady by remember { mutableStateOf(false) }
 
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
@@ -81,9 +82,8 @@ fun ARCaptureScreen(
     var distanceToTreasure by remember { mutableStateOf(999f) }
     var bearingToTreasure by remember { mutableStateOf(0f) }
 
-    var mainAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
-    var shovelModelNode by remember { mutableStateOf<ModelNode?>(null) }
     var terriccioModelNode by remember { mutableStateOf<ModelNode?>(null) }
+    var shovelModelNode by remember { mutableStateOf<ModelNode?>(null) }
 
     var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
@@ -106,52 +106,39 @@ fun ARCaptureScreen(
 
     LaunchedEffect(currentPhase) {
         if (currentPhase == ARPhase.DIGGING) {
-            while (digCount == 0 && mainAnchorNode == null) {
-                val currentFrame = frame
+            while (digCount == 0 && terriccioModelNode == null) {
+                val currentFrame = currentFrameHolder[0]
                 val currentSession = arSession
                 if (currentFrame != null && currentSession != null) {
                     val camera = currentFrame.camera
                     if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) {
                         
-                        val planes = currentSession.getAllTrackables(Plane::class.java)
-                        val validPlanes = planes.filter { 
-                            it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && 
-                            it.trackingState == com.google.ar.core.TrackingState.TRACKING 
-                        }
+                        val cameraPose = camera.pose
+                        
+                        // Invece di cercare un piano o un'ancora (che slitta), posizioniamo direttamente il modello 
+                        // nello spazio del mondo: 3 metri avanti, 1.4 metri in basso.
+                        val cameraZ = cameraPose.zAxis
+                        val dirX = -cameraZ[0]
+                        val dirZ = -cameraZ[2]
+                        val length = kotlin.math.sqrt((dirX * dirX + dirZ * dirZ).toDouble()).toFloat()
+                        val normX = if (length > 0) dirX / length else 0f
+                        val normZ = if (length > 0) dirZ / length else -1f
+                        
+                        val targetX = cameraPose.tx() + normX * 3.0f // 3 metri avanti
+                        val targetY = cameraPose.ty() - 1.4f         // 1.4 metri sotto
+                        val targetZ = cameraPose.tz() + normZ * 3.0f
 
-                        if (validPlanes.isNotEmpty()) {
-                            val cameraPose = camera.pose
-                            
-                            // Troviamo il pavimento più vicino a noi
-                            val bestPlane = validPlanes.minByOrNull { 
-                                val dx = it.centerPose.tx() - cameraPose.tx()
-                                val dz = it.centerPose.tz() - cameraPose.tz()
-                                dx*dx + dz*dz
-                            } ?: validPlanes.first()
-                            
-                            // Creiamo un'ancora esattamente al centro del piano rilevato per la massima stabilità
-                            val cleanAnchor = bestPlane.createAnchor(bestPlane.centerPose)
-
-                            mainAnchorNode = AnchorNode(engine, cleanAnchor)
-
-                            try {
-                                val terriccioInstance = modelLoader.createModelInstance("models/terriccio.glb")
-                                if (terriccioInstance != null) {
-                                    terriccioModelNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
-                                    // Alziamo leggermente di 2cm per evitare il lampeggiamento (Z-fighting) col pavimento reale o tracciato
-                                    terriccioModelNode?.position = io.github.sceneview.math.Position(y = 0.02f)
-                                    mainAnchorNode?.addChildNode(terriccioModelNode!!)
-                                }
-                            } catch (e: Exception) {}
-
-                            childNodes.add(mainAnchorNode!!)
-                            digCount = 1
-                            showDigWarning = false
-                            break
-                        } else {
-                            // Se non c'è ancora un piano, mostra l'avviso
-                            showDigWarning = true
-                        }
+                        try {
+                            val terriccioInstance = modelLoader.createModelInstance("models/terriccio.glb")
+                            if (terriccioInstance != null) {
+                                terriccioModelNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
+                                terriccioModelNode?.position = io.github.sceneview.math.Position(targetX, targetY, targetZ)
+                                childNodes.add(terriccioModelNode!!)
+                                digCount = 1
+                                showDigWarning = false
+                                break
+                            }
+                        } catch (e: Exception) {}
                     }
                 }
                 // Aspetta mezzo secondo prima di riprovare, senza bloccare l'UI
@@ -174,7 +161,7 @@ fun ARCaptureScreen(
             },
             onSessionUpdated = { session, updatedFrame ->
                 arSession = session
-                frame = updatedFrame
+                currentFrameHolder[0] = updatedFrame
                 if (!isEngineReady && updatedFrame != null) {
                     isEngineReady = true
                 }
@@ -196,7 +183,7 @@ fun ARCaptureScreen(
                                             shovelModelNode?.rotation = io.github.sceneview.math.Rotation(x = -135f, y = 0f, z = 0f)
                                             // Posizionata leggermente sopra il terriccio
                                             shovelModelNode?.position = io.github.sceneview.math.Position(y = 0.2f)
-                                            mainAnchorNode?.addChildNode(shovelModelNode!!)
+                                            terriccioModelNode?.addChildNode(shovelModelNode!!)
                                         }
                                     } catch (e: Exception) {}
                                 }
@@ -213,15 +200,15 @@ fun ARCaptureScreen(
                                 if (digCount > 3) {
                                     // --- RIVELAZIONE TESORO ---
                                     // Rimuoviamo terriccio e pala
-                                    terriccioModelNode?.let { mainAnchorNode?.removeChildNode(it) }
-                                    shovelModelNode?.let { mainAnchorNode?.removeChildNode(it) }
+                                    terriccioModelNode?.let { childNodes.remove(it) }
 
                                     try {
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
                                         if (chestInstance != null) {
                                             val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
+                                            chestModel.position = terriccioModelNode?.position ?: io.github.sceneview.math.Position(0f, 0f, 0f)
                                             chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = 0f, z = 0f)
-                                            mainAnchorNode?.addChildNode(chestModel)
+                                            childNodes.add(chestModel)
                                         }
                                     } catch (e: Exception) {}
 
@@ -304,10 +291,9 @@ fun ARCaptureScreen(
                 val instructionText = when (currentPhase) {
                     ARPhase.SEARCHING -> "Segui la freccia per trovare il tesoro!"
                     ARPhase.DIGGING -> {
-                        if (showDigWarning) "Inquadra meglio il pavimento!"
-                        else when (digCount) {
+                        when (digCount) {
                             0 -> "Ci sei! Il punto di scavo sta apparendo..."
-                            1 -> "Tocca il mucchio di terra per scavare! (1/3)"
+                            1 -> "Avvicinati e tocca il mucchio di terra per scavare! (1/3)"
                             2 -> "Continua così! (2/3)"
                             3 -> "Ultimo colpo! (3/3)"
                             else -> "Ottimo!"

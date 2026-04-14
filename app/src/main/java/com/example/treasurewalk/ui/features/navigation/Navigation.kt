@@ -187,7 +187,11 @@ fun AppNavigation() {
                         userLoc!!.longitude
                     ),
                     onCaptured = {
-                        // Passiamo l'ID e i dati al ViewModel
+                        // Prima facciamo il pop per evitare crash di Sceneview 
+                        // se l'oggetto sparisce mentre lo schermo è ancora attivo
+                        navController.popBackStack()
+
+                        // Poi passiamo l'ID e i dati al ViewModel
                         sharedViewModel.onTreasureCollected(
                             treasureId = targetTreasure.id, // L'ID cruciale!
                             lat = targetTreasure.position.latitude,
@@ -195,7 +199,6 @@ fun AppNavigation() {
                             type = com.example.treasurewalk.data.local.TreasureRarity.valueOf(targetTreasure.type.name),
                             xp = targetTreasure.type.xp
                         )
-                        navController.popBackStack()
                     }
                 )
             } else {
