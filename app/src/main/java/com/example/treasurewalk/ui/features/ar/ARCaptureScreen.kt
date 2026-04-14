@@ -72,8 +72,8 @@ fun ARCaptureScreen(
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
     var showDigWarning by remember(targetTreasure.id) { mutableStateOf(false) }
 
-    // Partiamo dalla fase SEARCHING ora!
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
+    // Partiamo dalla fase SEARCHING
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     // --- LOGICA BUSSOLA E DISTANZA ---
@@ -81,8 +81,9 @@ fun ARCaptureScreen(
     var distanceToTreasure by remember { mutableStateOf(999f) }
     var bearingToTreasure by remember { mutableStateOf(0f) }
 
-    var terriccioAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
-    var shovelAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
+    var mainAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
+    var shovelModelNode by remember { mutableStateOf<ModelNode?>(null) }
+    var terriccioModelNode by remember { mutableStateOf<ModelNode?>(null) }
 
     var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
@@ -103,6 +104,62 @@ fun ARCaptureScreen(
         }
     }
 
+    LaunchedEffect(currentPhase) {
+        if (currentPhase == ARPhase.DIGGING) {
+            while (digCount == 0 && mainAnchorNode == null) {
+                val currentFrame = frame
+                val currentSession = arSession
+                if (currentFrame != null && currentSession != null) {
+                    val camera = currentFrame.camera
+                    if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) {
+                        
+                        val planes = currentSession.getAllTrackables(Plane::class.java)
+                        val validPlanes = planes.filter { 
+                            it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && 
+                            it.trackingState == com.google.ar.core.TrackingState.TRACKING 
+                        }
+
+                        if (validPlanes.isNotEmpty()) {
+                            val cameraPose = camera.pose
+                            
+                            // Troviamo il pavimento più vicino a noi
+                            val bestPlane = validPlanes.minByOrNull { 
+                                val dx = it.centerPose.tx() - cameraPose.tx()
+                                val dz = it.centerPose.tz() - cameraPose.tz()
+                                dx*dx + dz*dz
+                            } ?: validPlanes.first()
+                            
+                            // Creiamo un'ancora esattamente al centro del piano rilevato per la massima stabilità
+                            val cleanAnchor = bestPlane.createAnchor(bestPlane.centerPose)
+
+                            mainAnchorNode = AnchorNode(engine, cleanAnchor)
+
+                            try {
+                                val terriccioInstance = modelLoader.createModelInstance("models/terriccio.glb")
+                                if (terriccioInstance != null) {
+                                    terriccioModelNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
+                                    // Alziamo leggermente di 2cm per evitare il lampeggiamento (Z-fighting) col pavimento reale o tracciato
+                                    terriccioModelNode?.position = io.github.sceneview.math.Position(y = 0.02f)
+                                    mainAnchorNode?.addChildNode(terriccioModelNode!!)
+                                }
+                            } catch (e: Exception) {}
+
+                            childNodes.add(mainAnchorNode!!)
+                            digCount = 1
+                            showDigWarning = false
+                            break
+                        } else {
+                            // Se non c'è ancora un piano, mostra l'avviso
+                            showDigWarning = true
+                        }
+                    }
+                }
+                // Aspetta mezzo secondo prima di riprovare, senza bloccare l'UI
+                kotlinx.coroutines.delay(500)
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
 
         ARScene(
@@ -114,7 +171,6 @@ fun ARCaptureScreen(
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
                 config.focusMode = Config.FocusMode.AUTO
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
-                config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
             },
             onSessionUpdated = { session, updatedFrame ->
                 arSession = session
@@ -127,95 +183,57 @@ fun ARCaptureScreen(
                 onSingleTapConfirmed = { motionEvent, node ->
                     when (currentPhase) {
                         ARPhase.DIGGING -> {
-                            // Non calcoliamo ancore se non è il tocco 1!
-                            if (digCount == 0) {
-                                // --- TOCCO 1: CREAZIONE ANCORA E PALA ---
-                                val hitResults = frame?.hitTest(motionEvent.x, motionEvent.y)
-                                var anchor = hitResults?.firstOrNull {
-                                    it.trackable is Plane ||
-                                    it.trackable is com.google.ar.core.Point ||
-                                    it.trackable is com.google.ar.core.InstantPlacementPoint
-                                }?.createAnchor()
-
-                                if (anchor == null) {
-                                    try {
-                                        val cameraPose = frame?.camera?.pose
-                                        if (cameraPose != null && arSession != null) {
-                                            val fallbackPose = com.google.ar.core.Pose.makeTranslation(0f, -0.5f, -1.0f)
-                                            anchor = arSession!!.createAnchor(cameraPose.compose(fallbackPose))
-                                        }
-                                    } catch (e: Exception) { /* Ignoriamo per evitare crash se perde il tracking */ }
-                                }
-
-                                if (anchor != null) {
-                                    showDigWarning = false
-                                    digCount = 1
-                                    shovelAnchorNode = AnchorNode(engine, anchor)
-
+                            if (digCount in 1..3) {
+                                // --- SCAVARE (3 TOCCHI) ---
+                                triggerVibration(context)
+                                
+                                if (digCount == 1) {
+                                    // Aggiungiamo la pala al primo colpo
                                     try {
                                         val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
-                                        val shovelModel = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
-                                        shovelModel.rotation = io.github.sceneview.math.Rotation(x = 10f, y = 10f, z = 40f)
-                                        shovelModel.position = io.github.sceneview.math.Position(x = 0f, y = 0.0f, z = 0f)
-                                        shovelAnchorNode?.addChildNode(shovelModel)
-
+                                        if (shovelInstance != null) {
+                                            shovelModelNode = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
+                                            shovelModelNode?.rotation = io.github.sceneview.math.Rotation(x = -135f, y = 0f, z = 0f)
+                                            // Posizionata leggermente sopra il terriccio
+                                            shovelModelNode?.position = io.github.sceneview.math.Position(y = 0.2f)
+                                            mainAnchorNode?.addChildNode(shovelModelNode!!)
+                                        }
                                     } catch (e: Exception) {}
-
-                                    childNodes.add(shovelAnchorNode!!)
-                                } else {
-                                    showDigWarning = true
                                 }
 
-                            } else if (digCount == 1) {
-                                // --- TOCCO 2: INCLINAZIONE E VIBRAZIONE ---
-                                digCount = 2
+                                // Animazione semplice: inclina la pala a ogni colpo
+                                shovelModelNode?.rotation = io.github.sceneview.math.Rotation(
+                                    x = -135f - (digCount * 10f),
+                                    y = 0f,
+                                    z = 0f
+                                )
 
-                                try {
-                                    val shovelModel = shovelAnchorNode?.childNodes?.firstOrNull() as? ModelNode
-                                    shovelModel?.rotation = io.github.sceneview.math.Rotation(x = 10f, y = 10f, z = 60f)
-                                    shovelModel?.position = io.github.sceneview.math.Position(x = 0f, y = 0.0f, z = 0f)
-                                } catch (e: Exception) { /* Fail-safe per la grafica */ }
+                                digCount++
 
-                                try {
-                                    // Blindiamo la vibrazione per evitare i capricci della MIUI!
-                                    triggerVibration(context)
-                                } catch (e: Exception) { }
-
-                            } else if (digCount == 2) {
-                                // --- TOCCO 3: FORZIERE ---
-                                digCount = 3
-
-                                // 1. Rubiamo l'ancora fisica (le coordinate GPS/AR) dalla pala
-                                val savedAnchor = shovelAnchorNode?.anchor
-
-                                // 2. Ora possiamo eliminare la pala in sicurezza
-                                shovelAnchorNode?.let { childNodes.remove(it) }
-
-                                // 3. Se l'ancora esiste, ci agganciamo il forziere
-                                if (savedAnchor != null) {
-                                    val chestAnchorNode = AnchorNode(engine, savedAnchor)
+                                if (digCount > 3) {
+                                    // --- RIVELAZIONE TESORO ---
+                                    // Rimuoviamo terriccio e pala
+                                    terriccioModelNode?.let { mainAnchorNode?.removeChildNode(it) }
+                                    shovelModelNode?.let { mainAnchorNode?.removeChildNode(it) }
 
                                     try {
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
-
-                                        val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
-                                        chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = -90f, z = 90f)
-                                        chestModel.position = io.github.sceneview.math.Position(x = 0f, y = 0f, z = 0f)
-                                        chestAnchorNode.addChildNode(chestModel)
-
+                                        if (chestInstance != null) {
+                                            val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
+                                            chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = 0f, z = 0f)
+                                            mainAnchorNode?.addChildNode(chestModel)
+                                        }
                                     } catch (e: Exception) {}
 
-                                    childNodes.add(chestAnchorNode)
+                                    currentPhase = ARPhase.REVEALED
                                 }
-
-                                currentPhase = ARPhase.REVEALED
                             }
                         }
 
                         ARPhase.REVEALED -> {
                             currentPhase = ARPhase.COLLECTED
                             coroutineScope.launch {
-                                kotlinx.coroutines.delay(4000)
+                                kotlinx.coroutines.delay(2000)
                                 onCaptured()
                             }
                         }
@@ -234,7 +252,6 @@ fun ARCaptureScreen(
 
             // 1. LA FRECCIA (Mostrata solo durante la ricerca)
             if (currentPhase == ARPhase.SEARCHING) {
-                // Calcoliamo la rotazione: Direzione del tesoro MENO dove sta guardando il telefono
                 val arrowRotation = (bearingToTreasure - heading + 360) % 360
 
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -246,7 +263,6 @@ fun ARCaptureScreen(
                             .size(100.dp)
                             .graphicsLayer(rotationZ = arrowRotation)
                     )
-                    // Testo sotto la freccia con i metri mancanti
                     Text(
                         text = "${distanceToTreasure.toInt()} metri",
                         color = Color.White,
@@ -256,7 +272,7 @@ fun ARCaptureScreen(
                 }
             }
 
-            // 2. SCHERMATA DI VITTORIA (Il Bottino!)
+            // 2. SCHERMATA DI VITTORIA
             AnimatedVisibility(
                 visible = currentPhase == ARPhase.COLLECTED,
                 enter = fadeIn(tween(500)) + scaleIn(tween(500)),
@@ -288,9 +304,14 @@ fun ARCaptureScreen(
                 val instructionText = when (currentPhase) {
                     ARPhase.SEARCHING -> "Segui la freccia per trovare il tesoro!"
                     ARPhase.DIGGING -> {
-                        if (showDigWarning) "Inquadra meglio il pavimento prima di scavare!"
-                        else if (digCount == 0) "Ci sei! Scava (tocca il pavimento) 3 volte!"
-                        else "Scava... $digCount/3"
+                        if (showDigWarning) "Inquadra meglio il pavimento!"
+                        else when (digCount) {
+                            0 -> "Ci sei! Il punto di scavo sta apparendo..."
+                            1 -> "Tocca il mucchio di terra per scavare! (1/3)"
+                            2 -> "Continua così! (2/3)"
+                            3 -> "Ultimo colpo! (3/3)"
+                            else -> "Ottimo!"
+                        }
                     }
                     ARPhase.REVEALED -> "L'hai trovato! Tocca il forziere per aprirlo!"
                     else -> ""
@@ -315,7 +336,6 @@ fun ARCaptureScreen(
 
 // --- FUNZIONI HELPER ---
 
-// 1. Legge la bussola del telefono per capire dove stai guardando
 @Composable
 fun rememberCompassHeading(): Float {
     val context = LocalContext.current
@@ -331,7 +351,6 @@ fun rememberCompassHeading(): Float {
                     SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
                     val orientation = FloatArray(3)
                     SensorManager.getOrientation(rotationMatrix, orientation)
-                    // Convertiamo da radianti a gradi
                     heading = Math.toDegrees(orientation[0].toDouble()).toFloat()
                 }
             }
@@ -343,22 +362,23 @@ fun rememberCompassHeading(): Float {
     return heading
 }
 
-// 2. Fa vibrare il telefono quando sei vicino
 fun triggerVibration(context: Context) {
-    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-        vibratorManager.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    }
-
-    if (vibrator.hasVibrator()) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(500)
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
-    }
+
+        if (vibrator.hasVibrator()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(200)
+            }
+        }
+    } catch (e: Exception) {}
 }
