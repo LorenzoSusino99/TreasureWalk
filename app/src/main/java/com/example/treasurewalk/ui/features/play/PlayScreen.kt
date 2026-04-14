@@ -139,8 +139,8 @@ fun PlayScreen(
                 if (plannedRoute.isNotEmpty()) {
                     Polyline(
                         points = plannedRoute,
-                        color = Color.Gray.copy(alpha = 0.5f),
-                        width = 12f,
+                        color = Color(0xFF3B82F6),
+                        width = 14f,
                         pattern = listOf(Dash(20f), Gap(10f)),
                         jointType = JointType.ROUND
                     )
