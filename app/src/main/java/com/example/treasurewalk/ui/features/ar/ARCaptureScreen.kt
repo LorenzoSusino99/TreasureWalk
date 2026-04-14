@@ -81,8 +81,9 @@ fun ARCaptureScreen(
     var distanceToTreasure by remember { mutableStateOf(999f) }
     var bearingToTreasure by remember { mutableStateOf(0f) }
 
+    var terriccioAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
     var shovelAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
-    // Aggiungiamo la memoria per la Sessione AR
+
     var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
     // Calcoliamo la distanza e l'angolo ogni volta che l'utente si muove
@@ -132,8 +133,8 @@ fun ARCaptureScreen(
                                 val hitResults = frame?.hitTest(motionEvent.x, motionEvent.y)
                                 var anchor = hitResults?.firstOrNull {
                                     it.trackable is Plane ||
-                                            it.trackable is com.google.ar.core.Point ||
-                                            it.trackable is com.google.ar.core.InstantPlacementPoint
+                                    it.trackable is com.google.ar.core.Point ||
+                                    it.trackable is com.google.ar.core.InstantPlacementPoint
                                 }?.createAnchor()
 
                                 if (anchor == null) {
@@ -153,11 +154,11 @@ fun ARCaptureScreen(
 
                                     try {
                                         val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
-                                        if (shovelInstance != null) {
-                                            val shovelModel = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
-                                            shovelModel.rotation = io.github.sceneview.math.Rotation(x = -135f, y = 0f, z = 0f)
-                                            shovelAnchorNode?.addChildNode(shovelModel)
-                                        }
+                                        val shovelModel = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
+                                        shovelModel.rotation = io.github.sceneview.math.Rotation(x = 10f, y = 10f, z = 40f)
+                                        shovelModel.position = io.github.sceneview.math.Position(x = 0f, y = 0.0f, z = 0f)
+                                        shovelAnchorNode?.addChildNode(shovelModel)
+
                                     } catch (e: Exception) {}
 
                                     childNodes.add(shovelAnchorNode!!)
@@ -171,7 +172,8 @@ fun ARCaptureScreen(
 
                                 try {
                                     val shovelModel = shovelAnchorNode?.childNodes?.firstOrNull() as? ModelNode
-                                    shovelModel?.rotation = io.github.sceneview.math.Rotation(x = -160f, y = 10f, z = 0f)
+                                    shovelModel?.rotation = io.github.sceneview.math.Rotation(x = 10f, y = 10f, z = 60f)
+                                    shovelModel?.position = io.github.sceneview.math.Position(x = 0f, y = 0.0f, z = 0f)
                                 } catch (e: Exception) { /* Fail-safe per la grafica */ }
 
                                 try {
@@ -197,7 +199,8 @@ fun ARCaptureScreen(
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
 
                                         val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
-                                        chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = -90f, z = 0f)
+                                        chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = -90f, z = 90f)
+                                        chestModel.position = io.github.sceneview.math.Position(x = 0f, y = 0f, z = 0f)
                                         chestAnchorNode.addChildNode(chestModel)
 
                                     } catch (e: Exception) {}
