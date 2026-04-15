@@ -49,7 +49,9 @@ class WalkTrackingService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         startForegroundService()
         startLocationUpdates()
-        return START_STICKY
+        // START_NOT_STICKY: se il sistema uccide il processo, NON riavviare il servizio.
+        // Questo evita che la localizzazione rimanga attiva dopo un crash o kill.
+        return START_NOT_STICKY
     }
 
     private fun startForegroundService() {
@@ -111,10 +113,26 @@ class WalkTrackingService : LifecycleService() {
         }
     }
 
+    /**
+     * Chiamato quando l'utente rimuove l'app dai recenti (swipe).
+     * Ferma immediatamente la localizzazione e il servizio.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopLocationAndCleanup()
+        stopSelf()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        stopLocationAndCleanup()
+    }
 
-        // FERMA IL GPS! Questo previene il battery leak.
+    /**
+     * Rimuove gli aggiornamenti di posizione dal GPS.
+     * Chiamato sia da onDestroy() che da onTaskRemoved() per sicurezza.
+     */
+    private fun stopLocationAndCleanup() {
         if (::fusedLocationClient.isInitialized) {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
