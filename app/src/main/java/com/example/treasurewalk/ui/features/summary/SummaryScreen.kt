@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -79,14 +81,14 @@ fun SummaryScreen(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             StatCard(
                 label = "Distanza",
-                value = "${String.format("%.2f", distance)} km",
-                icon = Icons.Default.EmojiEvents,
+                value = "${String.format(java.util.Locale.US, "%.2f", distance)} km",
+                icon = Icons.Default.DirectionsWalk,
                 modifier = Modifier.weight(1f)
             )
             StatCard(
                 label = "XP Presi",
                 value = "+$xpGained",
-                icon = Icons.Default.EmojiEvents,
+                icon = Icons.Default.Star,
                 modifier = Modifier.weight(1f),
             )
         }
