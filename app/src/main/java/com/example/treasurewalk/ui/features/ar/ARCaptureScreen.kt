@@ -274,8 +274,8 @@ fun ARCaptureScreen(
                             remEast = dx * cosH0 - dz * sinH0
                             remNorth = -dz * cosH0 - dx * sinH0
                             
-                            // Passaggio alla fase DIGGING quando vicini (entro 3 metri AR)
-                            if (arDist < 3.0f) {
+                            // Passaggio alla fase DIGGING quando vicini (entro 1 metro AR)
+                            if (arDist < 1.0f) {
                                 if (!hasVibrated) {
                                     triggerVibration(context)
                                     hasVibrated = true
