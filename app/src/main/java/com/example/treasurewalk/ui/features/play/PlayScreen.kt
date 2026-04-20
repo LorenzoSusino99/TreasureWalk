@@ -30,11 +30,13 @@ import com.google.maps.android.compose.*
 import com.google.android.gms.maps.CameraUpdateFactory
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
-import com.example.treasurewalk.data.manager.TreasureType
-import com.example.treasurewalk.ui.features.navigation.Routes
 import com.example.treasurewalk.ui.features.summary.SummaryScreen
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.Dash
@@ -155,29 +157,48 @@ fun PlayScreen(
                         jointType = JointType.ROUND
                     )
                 }
+                val treasureIcon = remember {
+                    val size = 96
+                    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bmp)
+                    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = android.graphics.Color.parseColor("#80000000")
+                        textSize = 58f
+                        textAlign = Paint.Align.CENTER
+                        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                    }
+                    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = android.graphics.Color.WHITE
+                        textSize = 58f
+                        textAlign = Paint.Align.CENTER
+                        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                    }
+                    val cx = size / 2f
+                    val cy = size / 2f + textPaint.textSize / 3f
+                    canvas.drawText("?", cx + 2f, cy + 2f, shadowPaint) // ombra
+                    canvas.drawText("?", cx, cy, textPaint)
+                    BitmapDescriptorFactory.fromBitmap(bmp)
+                }
+
                 treasures.forEach { treasure ->
                     if (treasure.isVisible) {
+                        Circle(
+                            center = treasure.position,
+                            radius = 5.0, // 10 metri di diametro = 5.0m di raggio
+                            fillColor = android.graphics.Color.parseColor("#33FFF9C0").let {
+                                Color(0x33FFF9C0)
+                            },
+                            strokeColor = Color(0xFFF9A825),
+                            strokeWidth = 3f
+                        )
                         Marker(
                             state = MarkerState(position = treasure.position),
-                            title = "Tesoro ${treasure.type.name}",
-                            icon = when (treasure.type) {
-                                TreasureType.COMMON -> BitmapDescriptorFactory.defaultMarker(
-                                    BitmapDescriptorFactory.HUE_GREEN
-                                )
-
-                                TreasureType.RARE -> BitmapDescriptorFactory.defaultMarker(
-                                    BitmapDescriptorFactory.HUE_AZURE
-                                )
-
-                                TreasureType.LEGENDARY -> BitmapDescriptorFactory.defaultMarker(
-                                    BitmapDescriptorFactory.HUE_ORANGE
-                                ) // HUE_GOLD non esiste, ORANGE è il più vicino!
-                            },
+                            title = "Tesoro",
+                            icon = treasureIcon,
+                            anchor = Offset(0.5f, 0.5f),
                             onClick = {
-                                // 1. Assicuriamoci che l'utente abbia una posizione valida
                                 val loc = userLocation
                                 if (loc != null) {
-                                    // 2. Calcoliamo la distanza in metri tra l'utente e QUESTO specifico tesoro
                                     val results = FloatArray(1)
                                     android.location.Location.distanceBetween(
                                         loc.latitude, loc.longitude,
@@ -185,13 +206,9 @@ fun PlayScreen(
                                         results
                                     )
                                     val distanceInMeters = results[0]
-
-                                    // 3. Eseguiamo il tuo controllo!
-                                    if (distanceInMeters < 20f) { // 20 metri di raggio
+                                    if (distanceInMeters < 20f) {
                                         pendingTreasureId = treasure.id
-                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)} else {
-                                        // Sostituisci questo con un vero Toast o una Snackbar
-                                        // Toast.makeText(context, "Sei a ${distanceInMeters.toInt()}m. Avvicinati ancora!", Toast.LENGTH_SHORT).show()
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     }
                                 }
                                 true
