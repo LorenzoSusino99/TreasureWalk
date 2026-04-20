@@ -46,6 +46,13 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
     val collectedTreasures = treasureDao.getAllCollectedTreasures()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    // --- NUOVI STATI PER LA SESSIONE CORRENTE ---
+    private val _sessionXp = MutableStateFlow(0)
+    val sessionXp = _sessionXp.asStateFlow()
+
+    private val _sessionTreasuresCount = MutableStateFlow(0)
+    val sessionTreasuresCount = _sessionTreasuresCount.asStateFlow()
+
     init {
         // 3. Il "Motore del Gioco": ogni volta che il GPS si aggiorna,
         // diciamo al TreasureManager di controllare le distanze!
@@ -61,6 +68,10 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
     }
 
     fun startNewMission(startLoc: LatLng, targetKm: Float) {
+        // Reset statistiche sessione
+        _sessionXp.value = 0
+        _sessionTreasuresCount.value = 0
+        
         viewModelScope.launch(Dispatchers.Default) {
 
             WalkTrackingService.clearPath()
@@ -131,6 +142,10 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             )
             treasureDao.insertTreasure(newTreasure)
         }
+
+        // AGGIORNAMENTO STATS SESSIONE
+        _sessionXp.value += xp
+        _sessionTreasuresCount.value += 1
 
         // 2. Diciamo al manager di farlo sparire dalla mappa!
         treasureManager.removeTreasure(treasureId)

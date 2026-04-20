@@ -56,6 +56,10 @@ fun PlayScreen(
     val totalDistance by viewModel.totalDistance.collectAsState()
     val totalXp by viewModel.totalXp.collectAsState()
     val treasures by viewModel.treasuresOnMap.collectAsState()
+    
+    // Nuovi dati di sessione
+    val sessionXp by viewModel.sessionXp.collectAsState()
+    val sessionTreasuresCount by viewModel.sessionTreasuresCount.collectAsState()
 
     // 1. ASCOLTO PER LA VIBRAZIONE
     LaunchedEffect(Unit) {
@@ -112,14 +116,10 @@ fun PlayScreen(
 
     // Se showSummary è vero, mostriamo la tua nuova schermata
     if (showSummary) {
-        // Calcoliamo i dati "al volo" dalla sessione corrente
-        val sessionTreasures = treasures.filter { it.isCollected }
-        val xpGained = sessionTreasures.sumOf { it.type.xp }
-
         SummaryScreen(
             distance = totalDistance,
-            xpGained = xpGained,
-            treasuresCount = sessionTreasures.size,
+            xpGained = sessionXp,
+            treasuresCount = sessionTreasuresCount,
             pathPoints = pathPoints,
             onHomeClick = {
                 // QUI chiudiamo definitivamente tutto!
