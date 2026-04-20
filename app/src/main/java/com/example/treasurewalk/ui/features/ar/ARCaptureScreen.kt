@@ -95,7 +95,7 @@ fun ARCaptureScreen(
     var isEngineReady by remember { mutableStateOf(false) }
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
 
-    // Corretto: Inizia dalla fase SEARCHING
+    // Partiamo dalla fase SEARCHING
     var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
@@ -110,7 +110,7 @@ fun ARCaptureScreen(
 
     val breadcrumbs = remember { mutableStateListOf<Node>() }
 
-    // --- LOGICA DISTANZA CON SMOOTHING (ANTI-GLITCH) ---
+    // --- LOGICA STABILIZZAZIONE GPS (Smoothing) ---
     LaunchedEffect(userLocation) {
         val userLoc = Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude }
         val targetLoc = Location("").apply { latitude = targetTreasure.position.latitude; longitude = targetTreasure.position.longitude }
@@ -119,20 +119,22 @@ fun ARCaptureScreen(
         val newRawBearing = userLoc.bearingTo(targetLoc)
 
         if (distanceToTreasure >= 999f) {
-            // Inizializzazione al primo segnale valido
+            // Prima lettura: inizializzazione diretta
             distanceToTreasure = newRawDistance
             bearingToTreasure = newRawBearing
         } else {
             // Filtro Passa-Basso: attenua i balzi del GPS
-            // Se lo sbalzo è irrealistico (>30m), pesiamo il nuovo dato molto meno
             val jump = kotlin.math.abs(newRawDistance - distanceToTreasure)
-            val alpha = if (jump > 30f) 0.05f else 0.25f 
+            // Se lo sbalzo è irrealistico (>40m), pesiamo il nuovo dato pochissimo
+            val alpha = if (jump > 40f) 0.05f else 0.25f
             
             distanceToTreasure = (distanceToTreasure * (1f - alpha)) + (newRawDistance * alpha)
+            
+            // Smoothing del bearing (direzione)
             bearingToTreasure = (bearingToTreasure * (1f - alpha)) + (newRawBearing * alpha)
         }
 
-        // Passa a DIGGING solo se la distanza STABILIZZATA è < 5m
+        // Passiamo alla fase di scavo solo se la distanza STABILIZZATA è < 5m
         if (currentPhase == ARPhase.SEARCHING && distanceToTreasure < 5f) {
             if (!hasVibrated) {
                 triggerVibration(context)
@@ -142,6 +144,7 @@ fun ARCaptureScreen(
         }
     }
 
+    // --- LOGICA BREADCRUMBS ---
     LaunchedEffect(isEngineReady, currentPhase) {
         if (isEngineReady && currentPhase == ARPhase.SEARCHING && breadcrumbs.isEmpty()) {
             val totalDist = distanceToTreasure
@@ -169,6 +172,7 @@ fun ARCaptureScreen(
         }
     }
 
+    // --- LOGICA POSIZIONAMENTO (TERRICCIO) ---
     LaunchedEffect(currentPhase) {
         if (currentPhase == ARPhase.DIGGING && treasureAnchorNode == null) {
             while (currentPhase == ARPhase.DIGGING && treasureAnchorNode == null) {
@@ -194,8 +198,9 @@ fun ARCaptureScreen(
                                 anchorNode.addChildNode(dirtNode)
                                 childNodes.add(anchorNode)
                                 
+                                // Ruota il terriccio per guardare l'utente ma solo sull'asse Y (rimane piatto)
                                 val camPose = frame.camera.pose
-                                dirtNode.lookAt(Position(camPose.tx(), camPose.ty(), camPose.tz()))
+                                dirtNode.lookAt(Position(camPose.tx(), dirtNode.position.y, dirtNode.position.z))
                                 
                                 treasureAnchorNode = anchorNode
                                 terriccioModelNode = dirtNode
@@ -262,16 +267,18 @@ fun ARCaptureScreen(
                                         val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
                                         if (shovelInstance != null) {
                                             shovelModelNode = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
-                                            shovelModelNode?.rotation = Rotation(x = -135f, y = 0f, z = 0f)
-                                            shovelModelNode?.position = Position(y = 0.3f)
+                                            // Ruotiamo la pala in modo che il manico sia rivolto verso l'alto
+                                            shovelModelNode?.rotation = Rotation(x = -45f, y = 0f, z = 0f)
+                                            // Alziamo la pala sopra il terriccio
+                                            shovelModelNode?.position = Position(y = 0.5f)
                                             treasureAnchorNode?.addChildNode(shovelModelNode!!)
                                         }
                                     } catch (e: Exception) {}
                                 }
 
                                 coroutineScope.launch {
-                                    val startX = -135f - ((digCount - 1) * 15f)
-                                    val targetX = -135f - (digCount * 15f)
+                                    val startX = -45f - ((digCount - 1) * 15f)
+                                    val targetX = -45f - (digCount * 15f)
                                     for (i in 1..10) {
                                         shovelModelNode?.rotation = Rotation(x = startX + (targetX - startX) * (i / 10f), y = 0f, z = 0f)
                                         delay(16)
