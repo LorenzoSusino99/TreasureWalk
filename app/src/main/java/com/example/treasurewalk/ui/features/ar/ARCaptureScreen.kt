@@ -96,7 +96,7 @@ fun ARCaptureScreen(
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
 
     // Partiamo dalla fase SEARCHING
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     val heading = rememberCompassHeading()
@@ -193,15 +193,15 @@ fun ARCaptureScreen(
                             if (terriccioInstance != null) {
                                 val dirtNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
                                 val targetScale = dirtNode.scale
-                                dirtNode.scale = Scale(0.01f, 0.01f, 0.01f)
+                                dirtNode.scale = Scale(0.007f, 0.007f, 0.007f)
                                 
                                 anchorNode.addChildNode(dirtNode)
                                 childNodes.add(anchorNode)
                                 
                                 // Ruota il terriccio per guardare l'utente ma solo sull'asse Y (rimane piatto)
                                 val camPose = frame.camera.pose
-                                dirtNode.lookAt(Position(camPose.tx(), dirtNode.position.y, dirtNode.position.z))
-                                
+                                dirtNode.lookAt(Position(camPose.tx(), camPose.ty(), camPose.tz()))
+                                dirtNode.rotation = Rotation(x = 0f, y = 90f, z = 0f)
                                 treasureAnchorNode = anchorNode
                                 terriccioModelNode = dirtNode
                                 
@@ -270,7 +270,7 @@ fun ARCaptureScreen(
                                             // Ruotiamo la pala in modo che il manico sia rivolto verso l'alto
                                             shovelModelNode?.rotation = Rotation(x = -45f, y = 0f, z = 0f)
                                             // Alziamo la pala sopra il terriccio
-                                            shovelModelNode?.position = Position(y = 0.5f)
+                                            shovelModelNode?.position = Position(y = 0.1f)
                                             treasureAnchorNode?.addChildNode(shovelModelNode!!)
                                         }
                                     } catch (e: Exception) {}
@@ -290,9 +290,12 @@ fun ARCaptureScreen(
                                     terriccioModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
                                     shovelModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
                                     try {
+                                        val frame = currentFrameHolder[0]
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
                                         if (chestInstance != null) {
                                             val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
+                                            chestModel.rotation = Rotation(x = 0f, y = -90f, z = 0f)
+
                                             val tScale = chestModel.scale
                                             chestModel.scale = Scale(0.01f, 0.01f, 0.01f)
                                             treasureAnchorNode?.addChildNode(chestModel)
