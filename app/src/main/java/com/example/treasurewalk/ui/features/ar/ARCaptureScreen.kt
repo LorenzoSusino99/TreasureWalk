@@ -70,6 +70,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 enum class ARPhase {
     SEARCHING,
@@ -95,13 +96,12 @@ fun ARCaptureScreen(
     var isEngineReady by remember { mutableStateOf(false) }
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
 
-    // Partiamo dalla fase SEARCHING
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
+    // Fase del gioco
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     val heading = rememberCompassHeading()
     var distanceToTreasure by remember { mutableStateOf(999f) }
-    var bearingToTreasure by remember { mutableStateOf(0f) }
 
     var treasureAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
     var terriccioModelNode by remember { mutableStateOf<ModelNode?>(null) }
@@ -110,60 +110,64 @@ fun ARCaptureScreen(
 
     val breadcrumbs = remember { mutableStateListOf<Node>() }
 
-    // --- LOGICA STABILIZZAZIONE GPS (Smoothing) ---
+    // --- LOGICA POSIZIONAMENTO RELATIVO (Fissaggio Tesoro) ---
+    // Calcoliamo la posizione relativa (metri N/E) UNA VOLTA all'inizio.
+    // Poi usiamo SOLO AR tracking per navigare verso quel punto.
+    var relativeTargetNorth by remember(targetTreasure.id) { mutableStateOf(0f) }
+    var relativeTargetEast by remember(targetTreasure.id) { mutableStateOf(0f) }
+    var remNorth by remember(targetTreasure.id) { mutableStateOf(0f) }
+    var remEast by remember(targetTreasure.id) { mutableStateOf(0f) }
+    var lockedTargetARPosition by remember(targetTreasure.id) { mutableStateOf<Position?>(null) }
+    var initialHeading by remember(targetTreasure.id) { mutableStateOf<Float?>(null) }
+    var relativeCoordinatesSet by remember(targetTreasure.id) { mutableStateOf(false) }
+
     LaunchedEffect(userLocation) {
-        val userLoc = Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude }
-        val targetLoc = Location("").apply { latitude = targetTreasure.position.latitude; longitude = targetTreasure.position.longitude }
-        
-        val newRawDistance = userLoc.distanceTo(targetLoc)
-        val newRawBearing = userLoc.bearingTo(targetLoc)
-
-        if (distanceToTreasure >= 999f) {
-            // Prima lettura: inizializzazione diretta
-            distanceToTreasure = newRawDistance
-            bearingToTreasure = newRawBearing
-        } else {
-            // Filtro Passa-Basso: attenua i balzi del GPS
-            val jump = kotlin.math.abs(newRawDistance - distanceToTreasure)
-            // Se lo sbalzo è irrealistico (>40m), pesiamo il nuovo dato pochissimo
-            val alpha = if (jump > 40f) 0.05f else 0.25f
+        if (!relativeCoordinatesSet) {
+            val latDiff = targetTreasure.position.latitude - userLocation.latitude
+            val lngDiff = targetTreasure.position.longitude - userLocation.longitude
             
-            distanceToTreasure = (distanceToTreasure * (1f - alpha)) + (newRawDistance * alpha)
+            relativeTargetNorth = (latDiff * 111320.0).toFloat()
+            relativeTargetEast = (lngDiff * 111320.0 * cos(Math.toRadians(userLocation.latitude))).toFloat()
             
-            // Smoothing del bearing (direzione)
-            bearingToTreasure = (bearingToTreasure * (1f - alpha)) + (newRawBearing * alpha)
-        }
-
-        // Passiamo alla fase di scavo solo se la distanza STABILIZZATA è < 5m
-        if (currentPhase == ARPhase.SEARCHING && distanceToTreasure < 5f) {
-            if (!hasVibrated) {
-                triggerVibration(context)
-                hasVibrated = true
-            }
-            currentPhase = ARPhase.DIGGING
+            val results = FloatArray(1)
+            Location.distanceBetween(
+                userLocation.latitude, userLocation.longitude,
+                targetTreasure.position.latitude, targetTreasure.position.longitude,
+                results
+            )
+            distanceToTreasure = results[0]
+            remNorth = relativeTargetNorth
+            remEast = relativeTargetEast
+            relativeCoordinatesSet = true
         }
     }
 
     // --- LOGICA BREADCRUMBS ---
-    LaunchedEffect(isEngineReady, currentPhase) {
-        if (isEngineReady && currentPhase == ARPhase.SEARCHING && breadcrumbs.isEmpty()) {
-            val totalDist = distanceToTreasure
-            val bearing = bearingToTreasure
-            val maxBreadcrumbDist = totalDist.coerceAtMost(45f)
-            for (d in 3..maxBreadcrumbDist.toInt() step 3) {
-                val relAngle = Math.toRadians((bearing - heading).toDouble())
-                val x = (d * sin(relAngle)).toFloat()
-                val z = -(d * cos(relAngle)).toFloat()
-                try {
-                    val ballInstance = modelLoader.createModelInstance("models/sphere.glb")
-                    if (ballInstance != null) {
-                        val ballNode = ModelNode(modelInstance = ballInstance, scaleToUnits = 0.2f).apply {
-                            position = Position(x, -0.5f, z)
+    LaunchedEffect(isEngineReady, currentPhase, lockedTargetARPosition) {
+        if (isEngineReady && currentPhase == ARPhase.SEARCHING && breadcrumbs.isEmpty() && lockedTargetARPosition != null) {
+            val target = lockedTargetARPosition!!
+            val totalDist = sqrt(target.x * target.x + target.z * target.z)
+            
+            if (totalDist > 0) {
+                val dirX = target.x / totalDist
+                val dirZ = target.z / totalDist
+                
+                // Distribuiamo sfere ogni 4 metri verso il target
+                val maxBreadcrumbDist = totalDist.coerceAtMost(60f)
+                for (d in 4..maxBreadcrumbDist.toInt() step 4) {
+                    val x = dirX * d
+                    val z = dirZ * d
+                    try {
+                        val ballInstance = modelLoader.createModelInstance("models/sphere.glb")
+                        if (ballInstance != null) {
+                            val ballNode = ModelNode(modelInstance = ballInstance, scaleToUnits = 0.2f).apply {
+                                position = Position(x, -0.6f, z)
+                            }
+                            childNodes.add(ballNode)
+                            breadcrumbs.add(ballNode)
                         }
-                        childNodes.add(ballNode)
-                        breadcrumbs.add(ballNode)
-                    }
-                } catch (e: Exception) {}
+                    } catch (e: Exception) {}
+                }
             }
         }
         if (currentPhase != ARPhase.SEARCHING) {
@@ -198,7 +202,6 @@ fun ARCaptureScreen(
                                 anchorNode.addChildNode(dirtNode)
                                 childNodes.add(anchorNode)
                                 
-                                // Ruota il terriccio per guardare l'utente ma solo sull'asse Y (rimane piatto)
                                 val camPose = frame.camera.pose
                                 dirtNode.lookAt(Position(camPose.tx(), camPose.ty(), camPose.tz()))
                                 dirtNode.rotation = Rotation(x = 0f, y = 90f, z = 0f)
@@ -238,20 +241,60 @@ fun ARCaptureScreen(
             onSessionUpdated = { session, updatedFrame ->
                 arSession = session
                 currentFrameHolder[0] = updatedFrame
-                if (!isEngineReady && updatedFrame != null) isEngineReady = true
+                
+                if (updatedFrame != null) {
+                    // Inizializzazione AR: Lock della posizione geografica relativa nel sistema AR
+                    if (!isEngineReady && relativeCoordinatesSet) {
+                        isEngineReady = true
+                        val hRad = Math.toRadians(heading.toDouble())
+                        initialHeading = heading
+                        val cosH = cos(hRad).toFloat()
+                        val sinH = sin(hRad).toFloat()
+                        
+                        // Rotazione del vettore (East, North) nel sistema coordinate AR (X, Z)
+                        val targetX = relativeTargetEast * cosH - relativeTargetNorth * sinH
+                        val targetZ = -(relativeTargetEast * sinH + relativeTargetNorth * cosH)
+                        
+                        lockedTargetARPosition = Position(targetX, updatedFrame.camera.pose.ty(), targetZ)
+                    }
 
-                if (currentPhase == ARPhase.SEARCHING && updatedFrame != null) {
-                    val cameraPose = updatedFrame.camera.pose
-                    val iterator = breadcrumbs.listIterator()
-                    while (iterator.hasNext()) {
-                        val node = iterator.next()
-                        val dx = node.position.x - cameraPose.tx()
-                        val dy = node.position.y - cameraPose.ty()
-                        val dz = node.position.z - cameraPose.tz()
-                        if (dx*dx + dy*dy + dz*dz < 1.0f) {
-                            childNodes.remove(node)
-                            iterator.remove()
-                            triggerVibration(context)
+                    if (currentPhase == ARPhase.SEARCHING) {
+                        val cameraPose = updatedFrame.camera.pose
+                        lockedTargetARPosition?.let { target ->
+                            val dx = target.x - cameraPose.tx()
+                            val dz = target.z - cameraPose.tz()
+                            val arDist = sqrt(dx*dx + dz*dz)
+                            
+                            distanceToTreasure = arDist
+                            
+                            // Aggiorna metri N/E rimanenti per la UI (inversione della rotazione iniziale)
+                            val h0 = Math.toRadians((initialHeading ?: heading).toDouble())
+                            val cosH0 = cos(h0).toFloat()
+                            val sinH0 = sin(h0).toFloat()
+                            remEast = dx * cosH0 - dz * sinH0
+                            remNorth = -dz * cosH0 - dx * sinH0
+                            
+                            // Passaggio alla fase DIGGING quando vicini (entro 3 metri AR)
+                            if (arDist < 3.0f) {
+                                if (!hasVibrated) {
+                                    triggerVibration(context)
+                                    hasVibrated = true
+                                }
+                                currentPhase = ARPhase.DIGGING
+                            }
+                        }
+
+                        // Pulizia breadcrumbs toccati
+                        val iterator = breadcrumbs.listIterator()
+                        while (iterator.hasNext()) {
+                            val node = iterator.next()
+                            val dx = node.position.x - cameraPose.tx()
+                            val dz = node.position.z - cameraPose.tz()
+                            if (dx*dx + dz*dz < 2.0f) {
+                                childNodes.remove(node)
+                                iterator.remove()
+                                triggerVibration(context)
+                            }
                         }
                     }
                 }
@@ -267,9 +310,7 @@ fun ARCaptureScreen(
                                         val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
                                         if (shovelInstance != null) {
                                             shovelModelNode = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
-                                            // Ruotiamo la pala in modo che il manico sia rivolto verso l'alto
                                             shovelModelNode?.rotation = Rotation(x = -45f, y = 0f, z = 0f)
-                                            // Alziamo la pala sopra il terriccio
                                             shovelModelNode?.position = Position(y = 0.1f)
                                             treasureAnchorNode?.addChildNode(shovelModelNode!!)
                                         }
@@ -290,12 +331,10 @@ fun ARCaptureScreen(
                                     terriccioModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
                                     shovelModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
                                     try {
-                                        val frame = currentFrameHolder[0]
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
                                         if (chestInstance != null) {
                                             val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
                                             chestModel.rotation = Rotation(x = 0f, y = -90f, z = 0f)
-
                                             val tScale = chestModel.scale
                                             chestModel.scale = Scale(0.01f, 0.01f, 0.01f)
                                             treasureAnchorNode?.addChildNode(chestModel)
@@ -325,20 +364,43 @@ fun ARCaptureScreen(
 
         if (!isEngineReady) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFFFFD166))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFFFFD166))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Calibrazione AR in corso...", color = Color.White)
+                }
             }
         } else {
             if (currentPhase == ARPhase.SEARCHING) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                    Text(
-                        text = "${distanceToTreasure.toInt()} metri",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .padding(top = 64.dp)
-                            .background(Color.Black.copy(alpha=0.5f), RoundedCornerShape(8.dp))
-                            .padding(8.dp)
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(top = 64.dp)
+                    ) {
+                        Text(
+                            text = "${distanceToTreasure.toInt()} metri",
+                            color = Color.White,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha=0.6f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 20.dp, vertical = 10.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        val nText = if (remNorth >= 0) "${remNorth.toInt()}N" else "${(-remNorth).toInt()}S"
+                        val eText = if (remEast >= 0) "${remEast.toInt()}E" else "${(-remEast).toInt()}O"
+                        
+                        Text(
+                            text = "$nText, $eText",
+                            color = Color(0xFFFFD166),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha=0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
 
@@ -370,10 +432,10 @@ fun ARCaptureScreen(
 
             if (currentPhase != ARPhase.COLLECTED) {
                 val instructionText = when (currentPhase) {
-                    ARPhase.SEARCHING -> "Segui le palline azzurre per trovare il tesoro!"
+                    ARPhase.SEARCHING -> "Segui le indicazioni per trovare il punto esatto!"
                     ARPhase.DIGGING -> {
                         when (digCount) {
-                            0 -> "Inquadra il pavimento in piano per far apparire il tesoro..."
+                            0 -> "Inquadra il pavimento per far apparire il tesoro..."
                             1 -> "Tocca il mucchio di terra per scavare! (1/3)"
                             2 -> "Continua così! (2/3)"
                             3 -> "Ultimo colpo! (3/3)"
