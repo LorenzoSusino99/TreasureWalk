@@ -15,19 +15,38 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,19 +58,24 @@ import com.google.ar.core.Plane
 import io.github.sceneview.ar.ARScene
 import io.github.sceneview.ar.node.AnchorNode
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.Node
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
 import io.github.sceneview.rememberOnGestureListener
+import io.github.sceneview.math.Position
+import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.google.ar.core.Pose
+import kotlin.math.cos
+import kotlin.math.sin
 
 enum class ARPhase {
-    SEARCHING, // Cerca la posizione seguendo la freccia
-    DIGGING,   // Sei arrivato! Scava 3 volte
-    REVEALED,  // Il tesoro è apparso
-    COLLECTED  // Hai raccolto il tesoro (Schermata di Vittoria!)
+    SEARCHING,
+    DIGGING,
+    REVEALED,
+    COLLECTED
 }
 
 @Composable
@@ -61,40 +85,54 @@ fun ARCaptureScreen(
     onCaptured: () -> Unit
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val childNodes = rememberNodes()
     val coroutineScope = rememberCoroutineScope()
 
-    // Usiamo un array per tenere il frame senza scatenare la ricomposizione a 60fps
     val currentFrameHolder = remember { arrayOfNulls<Frame>(1) }
     var isEngineReady by remember { mutableStateOf(false) }
-
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
-    var showDigWarning by remember(targetTreasure.id) { mutableStateOf(false) }
 
-    // Partiamo dalla fase SEARCHING
+    // Corretto: Inizia dalla fase SEARCHING
     var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
-    // --- LOGICA BUSSOLA E DISTANZA ---
     val heading = rememberCompassHeading()
     var distanceToTreasure by remember { mutableStateOf(999f) }
     var bearingToTreasure by remember { mutableStateOf(0f) }
 
+    var treasureAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
     var terriccioModelNode by remember { mutableStateOf<ModelNode?>(null) }
     var shovelModelNode by remember { mutableStateOf<ModelNode?>(null) }
-
     var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
-    // Calcoliamo la distanza e l'angolo ogni volta che l'utente si muove
+    val breadcrumbs = remember { mutableStateListOf<Node>() }
+
+    // --- LOGICA DISTANZA CON SMOOTHING (ANTI-GLITCH) ---
     LaunchedEffect(userLocation) {
         val userLoc = Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude }
         val targetLoc = Location("").apply { latitude = targetTreasure.position.latitude; longitude = targetTreasure.position.longitude }
+        
+        val newRawDistance = userLoc.distanceTo(targetLoc)
+        val newRawBearing = userLoc.bearingTo(targetLoc)
 
-        distanceToTreasure = userLoc.distanceTo(targetLoc)
-        bearingToTreasure = userLoc.bearingTo(targetLoc)
+        if (distanceToTreasure >= 999f) {
+            // Inizializzazione al primo segnale valido
+            distanceToTreasure = newRawDistance
+            bearingToTreasure = newRawBearing
+        } else {
+            // Filtro Passa-Basso: attenua i balzi del GPS
+            // Se lo sbalzo è irrealistico (>30m), pesiamo il nuovo dato molto meno
+            val jump = kotlin.math.abs(newRawDistance - distanceToTreasure)
+            val alpha = if (jump > 30f) 0.05f else 0.25f 
+            
+            distanceToTreasure = (distanceToTreasure * (1f - alpha)) + (newRawDistance * alpha)
+            bearingToTreasure = (bearingToTreasure * (1f - alpha)) + (newRawBearing * alpha)
+        }
 
+        // Passa a DIGGING solo se la distanza STABILIZZATA è < 5m
         if (currentPhase == ARPhase.SEARCHING && distanceToTreasure < 5f) {
             if (!hasVibrated) {
                 triggerVibration(context)
@@ -104,51 +142,84 @@ fun ARCaptureScreen(
         }
     }
 
-    LaunchedEffect(currentPhase) {
-        if (currentPhase == ARPhase.DIGGING) {
-            while (digCount == 0 && terriccioModelNode == null) {
-                val currentFrame = currentFrameHolder[0]
-                val currentSession = arSession
-                if (currentFrame != null && currentSession != null) {
-                    val camera = currentFrame.camera
-                    if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) {
-                        
-                        val cameraPose = camera.pose
-                        
-                        // Invece di cercare un piano o un'ancora (che slitta), posizioniamo direttamente il modello 
-                        // nello spazio del mondo: 3 metri avanti, 1.4 metri in basso.
-                        val cameraZ = cameraPose.zAxis
-                        val dirX = -cameraZ[0]
-                        val dirZ = -cameraZ[2]
-                        val length = kotlin.math.sqrt((dirX * dirX + dirZ * dirZ).toDouble()).toFloat()
-                        val normX = if (length > 0) dirX / length else 0f
-                        val normZ = if (length > 0) dirZ / length else -1f
-                        
-                        val targetX = cameraPose.tx() + normX * 3.0f // 3 metri avanti
-                        val targetY = cameraPose.ty() - 1.4f         // 1.4 metri sotto
-                        val targetZ = cameraPose.tz() + normZ * 3.0f
+    LaunchedEffect(isEngineReady, currentPhase) {
+        if (isEngineReady && currentPhase == ARPhase.SEARCHING && breadcrumbs.isEmpty()) {
+            val totalDist = distanceToTreasure
+            val bearing = bearingToTreasure
+            val maxBreadcrumbDist = totalDist.coerceAtMost(45f)
+            for (d in 3..maxBreadcrumbDist.toInt() step 3) {
+                val relAngle = Math.toRadians((bearing - heading).toDouble())
+                val x = (d * sin(relAngle)).toFloat()
+                val z = -(d * cos(relAngle)).toFloat()
+                try {
+                    val ballInstance = modelLoader.createModelInstance("models/sphere.glb")
+                    if (ballInstance != null) {
+                        val ballNode = ModelNode(modelInstance = ballInstance, scaleToUnits = 0.2f).apply {
+                            position = Position(x, -0.5f, z)
+                        }
+                        childNodes.add(ballNode)
+                        breadcrumbs.add(ballNode)
+                    }
+                } catch (e: Exception) {}
+            }
+        }
+        if (currentPhase != ARPhase.SEARCHING) {
+            breadcrumbs.forEach { childNodes.remove(it) }
+            breadcrumbs.clear()
+        }
+    }
 
+    LaunchedEffect(currentPhase) {
+        if (currentPhase == ARPhase.DIGGING && treasureAnchorNode == null) {
+            while (currentPhase == ARPhase.DIGGING && treasureAnchorNode == null) {
+                val frame = currentFrameHolder[0]
+                val session = arSession
+                if (frame != null && session != null && view.width > 0) {
+                    val hitResults = frame.hitTest(view.width / 2f, view.height / 2f)
+                    val groundHit = hitResults.firstOrNull { hit ->
+                        val trackable = hit.trackable
+                        trackable is Plane && trackable.type == Plane.Type.HORIZONTAL_UPWARD_FACING
+                    }
+
+                    if (groundHit != null) {
+                        val anchor = groundHit.createAnchor()
+                        val anchorNode = AnchorNode(engine, anchor)
                         try {
                             val terriccioInstance = modelLoader.createModelInstance("models/terriccio.glb")
                             if (terriccioInstance != null) {
-                                terriccioModelNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
-                                terriccioModelNode?.position = io.github.sceneview.math.Position(targetX, targetY, targetZ)
-                                childNodes.add(terriccioModelNode!!)
+                                val dirtNode = ModelNode(modelInstance = terriccioInstance, scaleToUnits = 0.8f)
+                                val targetScale = dirtNode.scale
+                                dirtNode.scale = Scale(0.01f, 0.01f, 0.01f)
+                                
+                                anchorNode.addChildNode(dirtNode)
+                                childNodes.add(anchorNode)
+                                
+                                val camPose = frame.camera.pose
+                                dirtNode.lookAt(Position(camPose.tx(), camPose.ty(), camPose.tz()))
+                                
+                                treasureAnchorNode = anchorNode
+                                terriccioModelNode = dirtNode
+                                
+                                coroutineScope.launch {
+                                    for (i in 1..10) {
+                                        val factor = i / 10f
+                                        dirtNode.scale = Scale(targetScale.x * factor, targetScale.y * factor, targetScale.z * factor)
+                                        delay(30)
+                                    }
+                                    dirtNode.scale = targetScale
+                                }
                                 digCount = 1
-                                showDigWarning = false
                                 break
                             }
                         } catch (e: Exception) {}
                     }
                 }
-                // Aspetta mezzo secondo prima di riprovare, senza bloccare l'UI
-                kotlinx.coroutines.delay(500)
+                delay(500)
             }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-
         ARScene(
             modifier = Modifier.fillMaxSize(),
             engine = engine,
@@ -162,8 +233,22 @@ fun ARCaptureScreen(
             onSessionUpdated = { session, updatedFrame ->
                 arSession = session
                 currentFrameHolder[0] = updatedFrame
-                if (!isEngineReady && updatedFrame != null) {
-                    isEngineReady = true
+                if (!isEngineReady && updatedFrame != null) isEngineReady = true
+
+                if (currentPhase == ARPhase.SEARCHING && updatedFrame != null) {
+                    val cameraPose = updatedFrame.camera.pose
+                    val iterator = breadcrumbs.listIterator()
+                    while (iterator.hasNext()) {
+                        val node = iterator.next()
+                        val dx = node.position.x - cameraPose.tx()
+                        val dy = node.position.y - cameraPose.ty()
+                        val dz = node.position.z - cameraPose.tz()
+                        if (dx*dx + dy*dy + dz*dz < 1.0f) {
+                            childNodes.remove(node)
+                            iterator.remove()
+                            triggerVibration(context)
+                        }
+                    }
                 }
             },
             onGestureListener = rememberOnGestureListener(
@@ -171,58 +256,56 @@ fun ARCaptureScreen(
                     when (currentPhase) {
                         ARPhase.DIGGING -> {
                             if (digCount in 1..3) {
-                                // --- SCAVARE (3 TOCCHI) ---
                                 triggerVibration(context)
-                                
                                 if (digCount == 1) {
-                                    // Aggiungiamo la pala al primo colpo
                                     try {
                                         val shovelInstance = modelLoader.createModelInstance("models/shovel.glb")
                                         if (shovelInstance != null) {
                                             shovelModelNode = ModelNode(modelInstance = shovelInstance, scaleToUnits = 0.6f)
-                                            shovelModelNode?.rotation = io.github.sceneview.math.Rotation(x = -135f, y = 0f, z = 0f)
-                                            // Posizionata leggermente sopra il terriccio
-                                            shovelModelNode?.position = io.github.sceneview.math.Position(y = 0.2f)
-                                            terriccioModelNode?.addChildNode(shovelModelNode!!)
+                                            shovelModelNode?.rotation = Rotation(x = -135f, y = 0f, z = 0f)
+                                            shovelModelNode?.position = Position(y = 0.3f)
+                                            treasureAnchorNode?.addChildNode(shovelModelNode!!)
                                         }
                                     } catch (e: Exception) {}
                                 }
 
-                                // Animazione semplice: inclina la pala a ogni colpo
-                                shovelModelNode?.rotation = io.github.sceneview.math.Rotation(
-                                    x = -135f - (digCount * 10f),
-                                    y = 0f,
-                                    z = 0f
-                                )
+                                coroutineScope.launch {
+                                    val startX = -135f - ((digCount - 1) * 15f)
+                                    val targetX = -135f - (digCount * 15f)
+                                    for (i in 1..10) {
+                                        shovelModelNode?.rotation = Rotation(x = startX + (targetX - startX) * (i / 10f), y = 0f, z = 0f)
+                                        delay(16)
+                                    }
+                                }
 
                                 digCount++
-
                                 if (digCount > 3) {
-                                    // --- RIVELAZIONE TESORO ---
-                                    // Rimuoviamo terriccio e pala
-                                    terriccioModelNode?.let { childNodes.remove(it) }
-
+                                    terriccioModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
+                                    shovelModelNode?.let { treasureAnchorNode?.removeChildNode(it) }
                                     try {
                                         val chestInstance = modelLoader.createModelInstance("models/treasure_chest.glb")
                                         if (chestInstance != null) {
                                             val chestModel = ModelNode(modelInstance = chestInstance, scaleToUnits = 0.5f)
-                                            chestModel.position = terriccioModelNode?.position ?: io.github.sceneview.math.Position(0f, 0f, 0f)
-                                            chestModel.rotation = io.github.sceneview.math.Rotation(x = 0f, y = 0f, z = 0f)
-                                            childNodes.add(chestModel)
+                                            val tScale = chestModel.scale
+                                            chestModel.scale = Scale(0.01f, 0.01f, 0.01f)
+                                            treasureAnchorNode?.addChildNode(chestModel)
+                                            coroutineScope.launch {
+                                                for (i in 1..10) {
+                                                    val f = i / 10f
+                                                    chestModel.scale = Scale(tScale.x * f, tScale.y * f, tScale.z * f)
+                                                    delay(30)
+                                                }
+                                                chestModel.scale = tScale
+                                            }
                                         }
                                     } catch (e: Exception) {}
-
                                     currentPhase = ARPhase.REVEALED
                                 }
                             }
                         }
-
                         ARPhase.REVEALED -> {
                             currentPhase = ARPhase.COLLECTED
-                            coroutineScope.launch {
-                                kotlinx.coroutines.delay(2000)
-                                onCaptured()
-                            }
+                            coroutineScope.launch { delay(2000); onCaptured() }
                         }
                         else -> {}
                     }
@@ -230,36 +313,25 @@ fun ARCaptureScreen(
             )
         )
 
-        // --- INTERFACCIA UTENTE ---
         if (!isEngineReady) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFFFFD166))
             }
         } else {
-
-            // 1. LA FRECCIA (Mostrata solo durante la ricerca)
             if (currentPhase == ARPhase.SEARCHING) {
-                val arrowRotation = (bearingToTreasure - heading + 360) % 360
-
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Direzione",
-                        tint = Color(0xFFFFD166).copy(alpha = 0.8f),
-                        modifier = Modifier
-                            .size(100.dp)
-                            .graphicsLayer(rotationZ = arrowRotation)
-                    )
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                     Text(
                         text = "${distanceToTreasure.toInt()} metri",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 140.dp).background(Color.Black.copy(alpha=0.5f), RoundedCornerShape(8.dp)).padding(8.dp)
+                        modifier = Modifier
+                            .padding(top = 64.dp)
+                            .background(Color.Black.copy(alpha=0.5f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
                     )
                 }
             }
 
-            // 2. SCHERMATA DI VITTORIA
             AnimatedVisibility(
                 visible = currentPhase == ARPhase.COLLECTED,
                 enter = fadeIn(tween(500)) + scaleIn(tween(500)),
@@ -286,14 +358,13 @@ fun ARCaptureScreen(
                 }
             }
 
-            // 3. ISTRUZIONI IN BASSO
             if (currentPhase != ARPhase.COLLECTED) {
                 val instructionText = when (currentPhase) {
-                    ARPhase.SEARCHING -> "Segui la freccia per trovare il tesoro!"
+                    ARPhase.SEARCHING -> "Segui le palline azzurre per trovare il tesoro!"
                     ARPhase.DIGGING -> {
                         when (digCount) {
-                            0 -> "Ci sei! Il punto di scavo sta apparendo..."
-                            1 -> "Avvicinati e tocca il mucchio di terra per scavare! (1/3)"
+                            0 -> "Inquadra il pavimento in piano per far apparire il tesoro..."
+                            1 -> "Tocca il mucchio di terra per scavare! (1/3)"
                             2 -> "Continua così! (2/3)"
                             3 -> "Ultimo colpo! (3/3)"
                             else -> "Ottimo!"
@@ -302,7 +373,6 @@ fun ARCaptureScreen(
                     ARPhase.REVEALED -> "L'hai trovato! Tocca il forziere per aprirlo!"
                     else -> ""
                 }
-
                 Text(
                     text = instructionText,
                     modifier = Modifier
@@ -320,13 +390,10 @@ fun ARCaptureScreen(
     }
 }
 
-// --- FUNZIONI HELPER ---
-
 @Composable
 fun rememberCompassHeading(): Float {
     val context = LocalContext.current
     var heading by remember { mutableStateOf(0f) }
-
     DisposableEffect(Unit) {
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -357,7 +424,6 @@ fun triggerVibration(context: Context) {
             @Suppress("DEPRECATION")
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
-
         if (vibrator.hasVibrator()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
