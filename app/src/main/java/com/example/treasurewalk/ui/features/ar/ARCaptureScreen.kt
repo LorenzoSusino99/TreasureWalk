@@ -37,7 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,7 +59,6 @@ import com.google.ar.core.Plane
 import io.github.sceneview.ar.ARScene
 import io.github.sceneview.ar.node.AnchorNode
 import io.github.sceneview.node.ModelNode
-import io.github.sceneview.node.Node
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
@@ -68,6 +68,7 @@ import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Scale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.acos
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -102,13 +103,14 @@ fun ARCaptureScreen(
 
     val heading = rememberCompassHeading()
     var distanceToTreasure by remember { mutableStateOf(999f) }
+    var angleToTreasure by remember { mutableStateOf(180f) }
 
     var treasureAnchorNode by remember { mutableStateOf<AnchorNode?>(null) }
     var terriccioModelNode by remember { mutableStateOf<ModelNode?>(null) }
     var shovelModelNode by remember { mutableStateOf<ModelNode?>(null) }
     var arSession by remember { mutableStateOf<com.google.ar.core.Session?>(null) }
 
-    val breadcrumbs = remember { mutableStateListOf<Node>() }
+
 
     // --- LOGICA POSIZIONAMENTO RELATIVO (Fissaggio Tesoro) ---
     // Calcoliamo la posizione relativa (metri N/E) UNA VOLTA all'inizio.
@@ -142,38 +144,27 @@ fun ARCaptureScreen(
         }
     }
 
-    // --- LOGICA BREADCRUMBS ---
-    LaunchedEffect(isEngineReady, currentPhase, lockedTargetARPosition) {
-        if (isEngineReady && currentPhase == ARPhase.SEARCHING && breadcrumbs.isEmpty() && lockedTargetARPosition != null) {
-            val target = lockedTargetARPosition!!
-            val totalDist = sqrt(target.x * target.x + target.z * target.z)
-            
-            if (totalDist > 0) {
-                val dirX = target.x / totalDist
-                val dirZ = target.z / totalDist
-                
-                // Distribuiamo sfere ogni 4 metri verso il target
-                val maxBreadcrumbDist = totalDist.coerceAtMost(60f)
-                for (d in 4..maxBreadcrumbDist.toInt() step 4) {
-                    val x = dirX * d
-                    val z = dirZ * d
-                    try {
-                        val ballInstance = modelLoader.createModelInstance("models/sphere.glb")
-                        if (ballInstance != null) {
-                            val ballNode = ModelNode(modelInstance = ballInstance, scaleToUnits = 0.2f).apply {
-                                position = Position(x, -0.6f, z)
-                            }
-                            childNodes.add(ballNode)
-                            breadcrumbs.add(ballNode)
-                        }
-                    } catch (e: Exception) {}
+    // --- LOGICA AUDIO BEACON ---
+    LaunchedEffect(currentPhase) {
+        if (currentPhase != ARPhase.SEARCHING) return@LaunchedEffect
+        try {
+            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            try {
+                while (true) {
+                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+                    val intervalMs = when {
+                        angleToTreasure <= 15f  -> 120L   // punta quasi dritto al tesoro
+                        angleToTreasure <= 45f  -> 300L
+                        angleToTreasure <= 90f  -> 700L
+                        angleToTreasure <= 135f -> 1500L
+                        else                    -> 2000L  // punta nella direzione opposta
+                    }
+                    delay(intervalMs)
                 }
+            } finally {
+                toneGen.release()
             }
-        }
-        if (currentPhase != ARPhase.SEARCHING) {
-            breadcrumbs.forEach { childNodes.remove(it) }
-            breadcrumbs.clear()
-        }
+        } catch (e: Exception) { /* audio non disponibile */ }
     }
 
     // --- LOGICA POSIZIONAMENTO (TERRICCIO) ---
@@ -266,6 +257,17 @@ fun ARCaptureScreen(
                             val arDist = sqrt(dx*dx + dz*dz)
                             
                             distanceToTreasure = arDist
+
+                            // Angolo tra camera forward e direzione tesoro (piano XZ)
+                            val fwdWorld = cameraPose.transformPoint(floatArrayOf(0f, 0f, -1f))
+                            val camFwdX = fwdWorld[0] - cameraPose.tx()
+                            val camFwdZ = fwdWorld[2] - cameraPose.tz()
+                            val fwdLen = sqrt(camFwdX * camFwdX + camFwdZ * camFwdZ)
+                            val tgtLen = sqrt(dx * dx + dz * dz)
+                            angleToTreasure = if (fwdLen > 0f && tgtLen > 0f) {
+                                val dot = (camFwdX * dx + camFwdZ * dz) / (fwdLen * tgtLen)
+                                Math.toDegrees(acos(dot.coerceIn(-1f, 1f).toDouble())).toFloat()
+                            } else 180f
                             
                             // Aggiorna metri N/E rimanenti per la UI (inversione della rotazione iniziale)
                             val h0 = Math.toRadians((initialHeading ?: heading).toDouble())
@@ -284,18 +286,6 @@ fun ARCaptureScreen(
                             }
                         }
 
-                        // Pulizia breadcrumbs toccati
-                        val iterator = breadcrumbs.listIterator()
-                        while (iterator.hasNext()) {
-                            val node = iterator.next()
-                            val dx = node.position.x - cameraPose.tx()
-                            val dz = node.position.z - cameraPose.tz()
-                            if (dx*dx + dz*dz < 2.0f) {
-                                childNodes.remove(node)
-                                iterator.remove()
-                                triggerVibration(context)
-                            }
-                        }
                     }
                 }
             },
@@ -432,7 +422,7 @@ fun ARCaptureScreen(
 
             if (currentPhase != ARPhase.COLLECTED) {
                 val instructionText = when (currentPhase) {
-                    ARPhase.SEARCHING -> "Segui le indicazioni per trovare il punto esatto!"
+                    ARPhase.SEARCHING -> "Segui il segnale sonoro per trovare il tesoro!"
                     ARPhase.DIGGING -> {
                         when (digCount) {
                             0 -> "Inquadra il pavimento per far apparire il tesoro..."
