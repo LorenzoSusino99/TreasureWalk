@@ -98,7 +98,7 @@ fun ARCaptureScreen(
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
 
     // Fase del gioco
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     val heading = rememberCompassHeading()
@@ -128,16 +128,18 @@ fun ARCaptureScreen(
             val latDiff = targetTreasure.position.latitude - userLocation.latitude
             val lngDiff = targetTreasure.position.longitude - userLocation.longitude
             
-            relativeTargetNorth = (latDiff * 111320.0).toFloat()
-            relativeTargetEast = (lngDiff * 111320.0 * cos(Math.toRadians(userLocation.latitude))).toFloat()
+            var north = (latDiff * 111320.0).toFloat()
+            var east = (lngDiff * 111320.0 * cos(Math.toRadians(userLocation.latitude))).toFloat()
+
+            // Riduzione se oltre i 9 metri (come richiesto)
+            if (north > 9f) north -= 7f else if (north < -9f) north += 7f
+            if (east > 9f) east -= 7f else if (east < -9f) east += 7f
+
+            relativeTargetNorth = north
+            relativeTargetEast = east
             
-            val results = FloatArray(1)
-            Location.distanceBetween(
-                userLocation.latitude, userLocation.longitude,
-                targetTreasure.position.latitude, targetTreasure.position.longitude,
-                results
-            )
-            distanceToTreasure = results[0]
+            // La distanza visualizzata inizialmente riflette le coordinate "corrette" o ridotte
+            distanceToTreasure = sqrt(north * north + east * east)
             remNorth = relativeTargetNorth
             remEast = relativeTargetEast
             relativeCoordinatesSet = true
