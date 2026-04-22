@@ -98,7 +98,7 @@ fun ARCaptureScreen(
     var hasVibrated by remember(targetTreasure.id) { mutableStateOf(false) }
 
     // Fase del gioco
-    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.SEARCHING) }
+    var currentPhase by remember(targetTreasure.id) { mutableStateOf(ARPhase.DIGGING) }
     var digCount by remember(targetTreasure.id) { mutableStateOf(0) }
 
     val heading = rememberCompassHeading()
@@ -277,7 +277,7 @@ fun ARCaptureScreen(
                             remNorth = -dz * cosH0 - dx * sinH0
                             
                             // Passaggio alla fase DIGGING quando vicini (entro 1 metro AR)
-                            if (arDist < 1.0f) {
+                            if (arDist < 2.5f) {
                                 if (!hasVibrated) {
                                     triggerVibration(context)
                                     hasVibrated = true

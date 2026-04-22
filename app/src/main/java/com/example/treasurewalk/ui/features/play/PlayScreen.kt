@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -24,10 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.treasurewalk.ui.viewmodels.WalkViewModel
-import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
-import com.google.android.gms.maps.CameraUpdateFactory
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.graphics.Bitmap
@@ -37,7 +34,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
-import com.example.treasurewalk.ui.features.summary.SummaryScreen
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.Dash
 import com.google.android.gms.maps.model.Gap
@@ -59,9 +55,8 @@ fun PlayScreen(
     val totalXp by viewModel.totalXp.collectAsState()
     val treasures by viewModel.treasuresOnMap.collectAsState()
     
-    // Nuovi dati di sessione
+    // Nuovi dati di sessione (XP e tesori della camminata attuale)
     val sessionXp by viewModel.sessionXp.collectAsState()
-    val sessionTreasuresCount by viewModel.sessionTreasuresCount.collectAsState()
 
     // 1. ASCOLTO PER LA VIBRAZIONE
     LaunchedEffect(Unit) {
@@ -70,11 +65,9 @@ fun PlayScreen(
         }
     }
 
-    // Stato della telecamera: si centra sull'utente quando la posizione cambia
+    // Stato della telecamera
     val cameraPositionState = rememberCameraPositionState()
-
     var isMapCentered by remember { mutableStateOf(false) }
-
     var pendingTreasureId by remember { mutableStateOf<String?>(null) }
 
     // 2. IL LANCIATORE DEL PERMESSO FOTOCAMERA
@@ -82,171 +75,148 @@ fun PlayScreen(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted ->
             if (isGranted) {
-                // Permesso accordato! Ora possiamo navigare in sicurezza
                 pendingTreasureId?.let { id ->
                     onNavigateToAR(id)
                 }
-            } else {
-                // Permesso negato
-                //Toast.makeText(context, "Serve la fotocamera per l'AR!", Toast.LENGTH_SHORT).show()
             }
-            // Svuotiamo la memoria
             pendingTreasureId = null
         }
     )
 
     LaunchedEffect(userLocation) {
         val location = userLocation
-        // Centriamo la telecamera SOLO se abbiamo una posizione E non l'abbiamo ancora mai centrata
         if (location != null && !isMapCentered) {
             val startLatLng = LatLng(location.latitude, location.longitude)
 
-            // Azione A: Centriamo la telecamera sull'utente
             cameraPositionState.animate(
                 com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
                     startLatLng, 16f
                 )
             )
 
-            // Azione B: GENERIAMO L'ANELLO E I TESORI!
+            // Avviamo la missione SOLO la prima volta che la mappa si centra
             viewModel.startNewMission(startLoc = startLatLng, targetKm = targetKm)
-            isMapCentered = true // Aggiorniamo il flag: non lo faremo più!
+            isMapCentered = true 
         }
     }
 
-    var showSummary by remember { mutableStateOf(false) }
-
-    // Se showSummary è vero, mostriamo la tua nuova schermata
-    if (showSummary) {
-        SummaryScreen(
-            distance = totalDistance,
-            xpGained = sessionXp,
-            treasuresCount = sessionTreasuresCount,
-            pathPoints = pathPoints,
-            onHomeClick = {
-                // QUI chiudiamo definitivamente tutto!
-                onStopClick()
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. LA MAPPA
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraPositionState,
+            properties = MapProperties(isMyLocationEnabled = true),
+            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
+        ) {
+            // Percorso pianificato (blu tratteggiato)
+            if (plannedRoute.isNotEmpty()) {
+                Polyline(
+                    points = plannedRoute,
+                    color = Color(0xFF3B82F6),
+                    width = 14f,
+                    pattern = listOf(Dash(20f), Gap(10f)),
+                    jointType = JointType.ROUND
+                )
             }
-        )
-    } else {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // 1. LA MAPPA
-            GoogleMap(
-                modifier = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                properties = MapProperties(isMyLocationEnabled = true),
-                uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
-            ) {
-                // Disegna il percorso fatto finora
-                if (plannedRoute.isNotEmpty()) {
-                    Polyline(
-                        points = plannedRoute,
-                        color = Color(0xFF3B82F6),
-                        width = 14f,
-                        pattern = listOf(Dash(20f), Gap(10f)),
-                        jointType = JointType.ROUND
-                    )
-                }
 
-                // 2. DISEGNA IL PERCORSO EFFETTIVO (VERDE PIENO)
-                if (pathPoints.isNotEmpty()) {
-                    Polyline(
-                        points = pathPoints,
-                        color = Color(0xFF45D084),
-                        width = 18f,
-                        jointType = JointType.ROUND
-                    )
-                }
-                val treasureIcon = remember {
-                    val size = 96
-                    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                    val canvas = android.graphics.Canvas(bmp)
-                    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.parseColor("#80000000")
-                        textSize = 58f
-                        textAlign = Paint.Align.CENTER
-                        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-                    }
-                    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 58f
-                        textAlign = Paint.Align.CENTER
-                        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-                    }
-                    val cx = size / 2f
-                    val cy = size / 2f + textPaint.textSize / 3f
-                    canvas.drawText("?", cx + 2f, cy + 2f, shadowPaint) // ombra
-                    canvas.drawText("?", cx, cy, textPaint)
-                    BitmapDescriptorFactory.fromBitmap(bmp)
-                }
+            // Percorso effettivo (verde pieno)
+            if (pathPoints.isNotEmpty()) {
+                Polyline(
+                    points = pathPoints,
+                    color = Color(0xFF45D084),
+                    width = 18f,
+                    jointType = JointType.ROUND
+                )
+            }
 
-                treasures.forEach { treasure ->
-                    if (treasure.isVisible) {
-                        Circle(
-                            center = treasure.position,
-                            radius = 5.0, // 10 metri di diametro = 5.0m di raggio
-                            fillColor = android.graphics.Color.parseColor("#33FFF9C0").let {
-                                Color(0x33FFF9C0)
-                            },
-                            strokeColor = Color(0xFFF9A825),
-                            strokeWidth = 3f
-                        )
-                        Marker(
-                            state = MarkerState(position = treasure.position),
-                            title = "Tesoro",
-                            icon = treasureIcon,
-                            anchor = Offset(0.5f, 0.5f),
-                            onClick = {
-                                val loc = userLocation
-                                if (loc != null) {
-                                    val results = FloatArray(1)
-                                    android.location.Location.distanceBetween(
-                                        loc.latitude, loc.longitude,
-                                        treasure.position.latitude, treasure.position.longitude,
-                                        results
-                                    )
-                                    val distanceInMeters = results[0]
-                                    if (distanceInMeters < 20f) {
-                                        pendingTreasureId = treasure.id
-                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                    }
+            val treasureIcon = remember {
+                val size = 96
+                val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bmp)
+                val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.parseColor("#80000000")
+                    textSize = 58f
+                    textAlign = Paint.Align.CENTER
+                    typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                }
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 58f
+                    textAlign = Paint.Align.CENTER
+                    typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                }
+                val cx = size / 2f
+                val cy = size / 2f + textPaint.textSize / 3f
+                canvas.drawText("?", cx + 2f, cy + 2f, shadowPaint)
+                canvas.drawText("?", cx, cy, textPaint)
+                BitmapDescriptorFactory.fromBitmap(bmp)
+            }
+
+            treasures.forEach { treasure ->
+                if (treasure.isVisible) {
+                    Circle(
+                        center = treasure.position,
+                        radius = 5.0,
+                        fillColor = Color(0x33FFF9C0),
+                        strokeColor = Color(0xFFF9A825),
+                        strokeWidth = 3f
+                    )
+                    Marker(
+                        state = MarkerState(position = treasure.position),
+                        title = "Tesoro",
+                        icon = treasureIcon,
+                        anchor = Offset(0.5f, 0.5f),
+                        onClick = {
+                            val loc = userLocation
+                            if (loc != null) {
+                                val results = FloatArray(1)
+                                android.location.Location.distanceBetween(
+                                    loc.latitude, loc.longitude,
+                                    treasure.position.latitude, treasure.position.longitude,
+                                    results
+                                )
+                                val distanceInMeters = results[0]
+                                if (distanceInMeters < 20f) {
+                                    pendingTreasureId = treasure.id
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                 }
-                                true
                             }
-                        )
-                    }
+                            true
+                        }
+                    )
                 }
             }
+        }
 
-            // 2. HUD - Statistiche in alto
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(top = 16.dp, start = 16.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                StatChip(text = "${String.format("%.2f", totalDistance)} KM", color = Color.White)
-                StatChip(text = "$totalXp XP", color = Color(0xFFFFD166), icon = Icons.Default.Star)
-            }
+        // 2. HUD - Statistiche in alto
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            StatChip(text = "${String.format("%.2f", totalDistance)} KM", color = Color.White)
+            // Mostriamo l'XP totale o di sessione? In questo caso mostriamo il totale accumulato
+            StatChip(text = "$totalXp XP", color = Color(0xFFFFD166), icon = Icons.Default.Star)
+        }
 
-            // 3. Tasto STOP in basso
-            Button(
-                onClick = { showSummary = true },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 32.dp)
-                    .height(60.dp)
-                    .fillMaxWidth(0.5f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                shape = RoundedCornerShape(30.dp),
-                elevation = ButtonDefaults.buttonElevation(8.dp)
-            ) {
-                Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFFFFFF))
-                Spacer(Modifier.width(8.dp))
-                Text("TERMINA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            }
+        // 3. Tasto TERMINA in basso
+        Button(
+            onClick = onStopClick, // ✅ Naviga direttamente al Summary tramite la rotta definita in Navigation
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 32.dp)
+                .height(60.dp)
+                .fillMaxWidth(0.5f),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+            shape = RoundedCornerShape(30.dp),
+            elevation = ButtonDefaults.buttonElevation(8.dp)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFFFFFF))
+            Spacer(Modifier.width(8.dp))
+            Text("TERMINA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
     }
 }

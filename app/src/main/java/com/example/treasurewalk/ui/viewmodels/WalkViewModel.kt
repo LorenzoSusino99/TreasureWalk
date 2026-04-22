@@ -24,43 +24,38 @@ import kotlin.random.Random
 class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
 
     private val routeGenerator = RouteGenerator()
-
     private val routingRepository = RoutingRepository()
     private val treasureManager = TreasureManager()
-    val treasuresOnMap = treasureManager.activeTreasures
     
-    // Espone il segnale di scoperta per la vibrazione
+    val treasuresOnMap = treasureManager.activeTreasures
     val newTreasureDiscovered = treasureManager.newTreasureDiscovered
 
-    // Percorso pianificato (quello grigio da seguire)
     private val _plannedRoute = MutableStateFlow<List<LatLng>>(emptyList())
     val plannedRoute = _plannedRoute.asStateFlow()
 
-    // 1. Osserva la posizione e il percorso dal Service
     val currentLocation = WalkTrackingService.currentLocation
     val pathPoints = WalkTrackingService.pathPoints
 
     val activeTreasures = treasureManager.activeTreasures
 
-    // 2. Stato dei tesori raccolti (dal DB)
     val collectedTreasures = treasureDao.getAllCollectedTreasures()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    // --- NUOVI STATI PER LA SESSIONE CORRENTE ---
+    // --- STATI SESSIONE ---
     private val _sessionXp = MutableStateFlow(0)
     val sessionXp = _sessionXp.asStateFlow()
 
     private val _sessionTreasuresCount = MutableStateFlow(0)
     val sessionTreasuresCount = _sessionTreasuresCount.asStateFlow()
 
+    // Flag per evitare reset multipli della stessa missione
+    private var isMissionActive = false
+
     init {
-        // 3. Il "Motore del Gioco": ogni volta che il GPS si aggiorna,
-        // diciamo al TreasureManager di controllare le distanze!
         viewModelScope.launch {
             currentLocation.collect { location ->
                 location?.let {
                     val userLatLng = LatLng(it.latitude, it.longitude)
-
                     treasureManager.checkProximity(userLatLng)
                 }
             }
@@ -68,37 +63,31 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
     }
 
     fun startNewMission(startLoc: LatLng, targetKm: Float) {
-        // Reset statistiche sessione
+        // Se la missione è già attiva, non resettare nulla!
+        // Questo evita reset quando si torna dalla schermata AR.
+        if (isMissionActive) return
+        
+        isMissionActive = true
         _sessionXp.value = 0
         _sessionTreasuresCount.value = 0
         
         viewModelScope.launch(Dispatchers.Default) {
-
             WalkTrackingService.clearPath()
-            // 1. Generiamo i vertici "sbilenchi" con la tua matematica
             val rawRoute = routeGenerator.generateLoop(startLoc, targetKm.toDouble())
-
-            // 2. Chiediamo a ORS di calcolare i marciapiedi reali tra questi punti!
             val realWalkingRoute = routingRepository.getRealWalkingPath(rawRoute)
-
-            // 3. Diamo alla mappa il percorso reale, non quello dritto
             _plannedRoute.value = realWalkingRoute
 
-            // 4. Seminiamo i tesori!
-            
-            // --- TESTING: Genera 1 tesoro subito alla posizione di inizio ---
+            // Spawn tesori
             repeat(1) {
                 treasureManager.spawnTreasureNear(startLoc, minRadius = 2.0, maxRadius = 10.0)
             }
 
-            // Riduciamo il numero di tesori a un range tra 5 e 10
-            val numberOfTreasures = Random.nextInt(5, 11)
-
-            // Dividiamo la lunghezza totale della lista reale per distribuire i tesori in modo equo
+            // Numero di tesori basato sulla distanza (3 tesori per ogni km)
+            val numberOfTreasures = (targetKm * 3).toInt().coerceAtLeast(1)
+            
             if (realWalkingRoute.isNotEmpty()) {
                 val step = realWalkingRoute.size / numberOfTreasures
                 for (i in 1..numberOfTreasures) {
-                    // Prendiamo un punto esatto lungo il sentiero calcolato
                     val spawnIndex = (i * step).coerceAtMost(realWalkingRoute.size - 1)
                     val spawnPoint = realWalkingRoute[spawnIndex]
                     treasureManager.spawnTreasureNear(spawnPoint, minRadius = 5.0, maxRadius = 30.0)
@@ -106,33 +95,22 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             }
         }
     }
-    private fun salvaTesoroNelDb(treasure: Treasure, userLatLng: LatLng) {
-        viewModelScope.launch {
-            treasureDao.insertTreasure(
-                TreasureEntity(
-                    type = TreasureRarity.valueOf(treasure.type.name),
-                    lat = userLatLng.latitude,
-                    lng = userLatLng.longitude,
-                    xpAwarded = treasure.type.xp
-                )
-            )
-        }
+
+    fun endMission() {
+        isMissionActive = false
     }
-    // 3. XP Totale calcolato automaticamente dal DB
+
     val totalXp = treasureDao.getTotalXp()
         .map { it ?: 0 }
         .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
-    // 4. Logica per calcolare la distanza totale percorsa
     val totalDistance = pathPoints.map { points ->
         calculateTotalDistance(points)
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
 
-    // Funzione per raccogliere un tesoro
     fun onTreasureCollected(treasureId: String, lat: Double, lng: Double, type: TreasureRarity, xp: Int) {
-        // 1. Salviamo nel database locale (la tua logica originale perfetta)
         viewModelScope.launch {
             val newTreasure = TreasureEntity(
                 type = type,
@@ -143,15 +121,13 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             treasureDao.insertTreasure(newTreasure)
         }
 
-        // AGGIORNAMENTO STATS SESSIONE
+        // Incrementiamo i valori di sessione
         _sessionXp.value += xp
         _sessionTreasuresCount.value += 1
 
-        // 2. Diciamo al manager di farlo sparire dalla mappa!
         treasureManager.removeTreasure(treasureId)
     }
 
-    // Algoritmo di Haversine per calcolare la distanza tra punti GPS
     private fun calculateTotalDistance(points: List<LatLng>): Double {
         var distance = 0.0
         for (i in 0 until points.size - 1) {
@@ -165,7 +141,6 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
             )
             distance += results[0]
         }
-        return distance / 1000.0 // Convertiamo in km
+        return distance / 1000.0
     }
-
 }
