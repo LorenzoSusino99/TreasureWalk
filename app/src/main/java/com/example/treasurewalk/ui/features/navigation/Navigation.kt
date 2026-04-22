@@ -150,6 +150,7 @@ fun AppNavigation() {
                 treasuresCount = sessionTreasuresCount,
                 pathPoints = pathPoints,
                 onHomeClick = {
+                    sharedViewModel.resetMissionData()
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.HOME) { inclusive = true }
                     }

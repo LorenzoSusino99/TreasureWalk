@@ -105,6 +105,14 @@ class TreasureManager {
             }
         }
     }
+
+    /**
+     * Svuota la lista dei tesori attivi.
+     */
+    fun clearTreasures() {
+        _activeTreasures.value = emptyList()
+    }
+
     // Rimuove un tesoro dalla mappa una volta raccolto
     fun removeTreasure(treasureId: String) {
         _activeTreasures.update { currentList ->

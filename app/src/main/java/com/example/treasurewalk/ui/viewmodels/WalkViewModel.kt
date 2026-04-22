@@ -96,6 +96,19 @@ class WalkViewModel(private val treasureDao: TreasureDao) : ViewModel() {
         }
     }
 
+    /**
+     * Resetta completamente i dati della missione corrente.
+     * Da chiamare quando si torna alla Home o si conclude definitivamente una partita.
+     */
+    fun resetMissionData() {
+        isMissionActive = false
+        _plannedRoute.value = emptyList()
+        _sessionXp.value = 0
+        _sessionTreasuresCount.value = 0
+        treasureManager.clearTreasures()
+        WalkTrackingService.clearPath()
+    }
+
     fun endMission() {
         isMissionActive = false
     }
