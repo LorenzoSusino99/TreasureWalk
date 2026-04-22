@@ -37,7 +37,7 @@ object Routes {
     const val HOME = "home"
     const val INVENTORY = "inventory"
     const val PROFILE = "profile"
-    const val SUMMARY = "summary"
+    const val SUMMARY = "summary/{targetKm}"
     const val PLAY = "play/{targetKm}"
 
     const val AR_CAPTURE = "ar_capture/{treasureId}"
@@ -47,6 +47,9 @@ object Routes {
     }
     fun createPlayRoute(km: Float): String {
         return "play/$km"
+    }
+    fun createSummaryRoute(km: Float): String {
+        return "summary/$km"
     }
 }
 
@@ -110,7 +113,7 @@ fun AppNavigation() {
                 },
                 onStopClick = {
                     context.stopService(Intent(context, WalkTrackingService::class.java))
-                    navController.navigate(Routes.SUMMARY) // ✅ Naviga alla rotta Summary
+                    navController.navigate(Routes.createSummaryRoute(extractedKm)) 
                 }
             )
         }
@@ -129,16 +132,20 @@ fun AppNavigation() {
             )
         }
 
-        composable(Routes.SUMMARY) {
+        composable(
+            route = Routes.SUMMARY,
+            arguments = listOf(navArgument("targetKm") { type = NavType.FloatType })
+        ) { backStackEntry ->
+            val targetKm = backStackEntry.arguments?.getFloat("targetKm") ?: 0f
             val distance by sharedViewModel.totalDistance.collectAsState()
             val pathPoints by sharedViewModel.pathPoints.collectAsState()
             
-            // ✅ Usa i dati della sessione corrente
             val sessionXp by sharedViewModel.sessionXp.collectAsState()
             val sessionTreasuresCount by sharedViewModel.sessionTreasuresCount.collectAsState()
 
             SummaryScreen(
                 distance = distance,
+                targetDistance = targetKm,
                 xpGained = sessionXp,
                 treasuresCount = sessionTreasuresCount,
                 pathPoints = pathPoints,

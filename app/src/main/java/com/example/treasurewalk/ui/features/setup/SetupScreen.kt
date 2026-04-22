@@ -77,7 +77,7 @@ fun SetupScreen(
                     value = distanceTarget,
                     onValueChange = { distanceTarget = it },
                     valueRange = 1f..10f,
-                    steps = 18, // Incrementi di 0.5km
+                    steps = 89, // Incrementi di 0.5km
                     colors = SliderDefaults.colors(
                         thumbColor = Color(0xFF3B82F6),
                         activeTrackColor = Color(0xFF3B82F6)

@@ -42,11 +42,16 @@ import com.google.maps.android.compose.rememberCameraPositionState
 @Composable
 fun SummaryScreen(
     distance: Double,
+    targetDistance: Float,
     xpGained: Int,
     treasuresCount: Int,
     pathPoints: List<LatLng>,
     onHomeClick: () -> Unit
 ) {
+    val isMissionCompleted = distance >= targetDistance
+    val titleText = if (isMissionCompleted) "MISSIONE COMPIUTA!" else "MISSIONE INTERROTTA"
+    val titleColor = if (isMissionCompleted) Color(0xFF45D084) else Color(0xFFEF4444)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -56,10 +61,10 @@ fun SummaryScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "MISSIONE COMPIUTA!",
+            text = titleText,
             fontSize = 28.sp,
             fontWeight = FontWeight.Black,
-            color = Color(0xFF45D084)
+            color = titleColor
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -88,7 +93,7 @@ fun SummaryScreen(
                 )
             ) {
                 if (pathPoints.isNotEmpty()) {
-                    Polyline(points = pathPoints, color = Color(0xFF45D084), width = 12f)
+                    Polyline(points = pathPoints, color = titleColor, width = 12f)
                 }
             }
         }
@@ -99,7 +104,7 @@ fun SummaryScreen(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             StatCard(
                 label = "Distanza",
-                value = "${String.format(java.util.Locale.US, "%.2f", distance)} km",
+                value = "${String.format(java.util.Locale.US, "%.1f", distance)} / ${targetDistance} km",
                 icon = Icons.AutoMirrored.Filled.DirectionsWalk,
                 modifier = Modifier.weight(1f)
             )
